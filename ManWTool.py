@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (0, 0, 7),
+    "version": (0, 0, 9),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado y export FBX con ReExport.",
@@ -10,7 +10,6 @@ bl_info = {
 
 import os
 import bpy
-import bpy.utils.previews
 import threading
 import urllib.request
 import json
@@ -25,11 +24,10 @@ from bpy.app.handlers import persistent
 
 
 ADDON_ID = __name__
-_preview_col = None  # logo
 
-# ⚠️ SOLO CAMBIA ESTO: tu usuario y nombre del repositorio de GitHub
-GITHUB_USER = "Man"      # 👈 Cambia esto
-GITHUB_REPO = "ManWTool"        # 👈 Cambia esto
+# SOLO CAMBIA ESTO: tu usuario y nombre del repositorio de GitHub
+GITHUB_USER = "ManWitoo"      # Cambia esto
+GITHUB_REPO = "ManWTool"        # Cambia esto
 
 # Variable global para almacenar info de actualización
 _update_info = {
@@ -43,17 +41,10 @@ _update_info = {
 
 
 # -------------------------------------------------
-# Preferencias (logo + auto-update)
+# Preferencias
 # -------------------------------------------------
 class MANWTOOL_Preferences(AddonPreferences):
     bl_idname = ADDON_ID
-
-    logo_path: StringProperty(
-        name="Logo (PNG)",
-        description="Selecciona un PNG para mostrarlo como logo en la cabecera del addon",
-        subtype="FILE_PATH",
-        default="",
-    )
     
     auto_check_updates: BoolProperty(
         name="Verificar actualizaciones al iniciar",
@@ -66,51 +57,17 @@ class MANWTOOL_Preferences(AddonPreferences):
         layout.label(text="Preferencias de ManWTool")
         
         box = layout.box()
-        box.label(text="Apariencia:", icon="IMAGE_DATA")
-        box.prop(self, "logo_path")
-        box.label(text="Sugerencia: PNG cuadrado (128x128 o 256x256).")
-        
-        box = layout.box()
         box.label(text="Actualizaciones:", icon="URL")
         box.prop(self, "auto_check_updates")
-        box.label(text=f"Repo: {GITHUB_USER}/{GITHUB_REPO}", icon="GITHUB")
         
-        row = box.row()
-        row.operator("manwtool.check_updates", icon="FILE_REFRESH")
-
-
-def _reload_logo():
-    global _preview_col
-    if _preview_col is None:
-        return
-
-    prefs = bpy.context.preferences.addons[ADDON_ID].preferences
-    path = bpy.path.abspath(prefs.logo_path) if prefs.logo_path else ""
-    key = "manwtool_logo"
-
-    if key in _preview_col:
-        try:
-            _preview_col.remove(_preview_col[key])
-        except Exception:
-            pass
-
-    if not path or not os.path.isfile(path):
-        return
-
-    try:
-        _preview_col.load(key, path, "IMAGE")
-    except Exception:
-        pass
-
-
-def _get_logo_icon_value():
-    global _preview_col
-    if _preview_col is None:
-        return None
-    key = "manwtool_logo"
-    if key in _preview_col:
-        return _preview_col[key].icon_id
-    return None
+        if GITHUB_USER == "TU_USUARIO":
+            warning = box.row()
+            warning.alert = True
+            warning.label(text="Configura GITHUB_USER en el codigo", icon="ERROR")
+        else:
+            box.label(text=f"Repo: {GITHUB_USER}/{GITHUB_REPO}", icon="GITHUB")
+            row = box.row()
+            row.operator("manwtool.check_updates", icon="FILE_REFRESH")
 
 
 # -------------------------------------------------
@@ -124,6 +81,11 @@ def _compare_versions(current, remote):
 def _check_for_updates_thread():
     """Verifica actualizaciones consultando GitHub Releases API"""
     global _update_info
+    
+    # No verificar si no está configurado
+    if GITHUB_USER == "TU_USUARIO":
+        _update_info["checking"] = False
+        return
     
     _update_info["checking"] = True
     _update_info["error"] = None
@@ -218,7 +180,7 @@ def _download_and_install_update(download_url):
         # Limpiar archivos temporales
         shutil.rmtree(temp_dir, ignore_errors=True)
         
-        return True, "�?Actualización instalada. Reinicia Blender para aplicar cambios."
+        return True, "Actualización instalada. Reinicia Blender para aplicar cambios."
         
     except Exception as e:
         return False, f"Error: {str(e)}"
@@ -233,7 +195,7 @@ class MANWTOOL_OT_check_updates(Operator):
     bl_description = "Comprobar si hay una nueva versión disponible en GitHub"
     
     def execute(self, context):
-        if not GITHUB_USER or GITHUB_USER == "TU_USUARIO":
+        if GITHUB_USER == "TU_USUARIO":
             self.report({"ERROR"}, "Configura GITHUB_USER y GITHUB_REPO en el código")
             return {"CANCELLED"}
         
@@ -289,8 +251,12 @@ class MANWTOOL_OT_dismiss_update(Operator):
 def _auto_check_updates(dummy):
     """Se ejecuta al cargar un archivo .blend"""
     try:
+        # Solo verificar si está configurado
+        if GITHUB_USER == "TU_USUARIO":
+            return
+            
         prefs = bpy.context.preferences.addons[ADDON_ID].preferences
-        if prefs.auto_check_updates and GITHUB_USER != "TU_USUARIO":
+        if prefs.auto_check_updates:
             thread = threading.Thread(target=_check_for_updates_thread)
             thread.daemon = True
             thread.start()
@@ -342,16 +308,12 @@ def _active_obj_status(context):
 def _draw_header(panel, context, show_status=True):
     layout = panel.layout
 
-    icon_value = _get_logo_icon_value()
     row = layout.row(align=True)
 
     title = "ManWTool"
     ver = ".".join(map(str, bl_info["version"]))
 
-    if icon_value:
-        row.label(text=f"{title}  v{ver}", icon_value=icon_value)
-    else:
-        row.label(text=f"{title}  v{ver}", icon="TOOL_SETTINGS")
+    row.label(text=f"{title}  v{ver}", icon="TOOL_SETTINGS")
 
     if not show_status:
         return
@@ -370,7 +332,7 @@ def _draw_update_notification(layout):
     if _update_info["checking"]:
         box = layout.box()
         row = box.row()
-        row.label(text="🔄 Verificando actualizaciones...", icon="SORTTIME")
+        row.label(text="Verificando actualizaciones...", icon="SORTTIME")
         return
     
     if _update_info["error"]:
@@ -384,7 +346,7 @@ def _draw_update_notification(layout):
         # Título
         row = box.row()
         ver_str = ".".join(map(str, _update_info["version"]))
-        row.label(text=f"🎉 Nueva versión: v{ver_str}", icon="INFO")
+        row.label(text=f"Nueva version: v{ver_str}", icon="INFO")
         
         # Notas (máximo 2 líneas)
         if _update_info["notes"]:
@@ -399,7 +361,7 @@ def _draw_update_notification(layout):
         row = box.row(align=True)
         row.scale_y = 1.2
         row.operator("manwtool.install_update", text="Actualizar", icon="IMPORT")
-        row.operator("manwtool.dismiss_update", text="Más Tarde", icon="X")
+        row.operator("manwtool.dismiss_update", text="Mas Tarde", icon="X")
 
 
 def _big_button(row_or_layout):
@@ -732,16 +694,16 @@ class MANWTOOL_PT_export(MANWTOOL_PT_base):
 
         info = box.column(align=True)
         info.enabled = False
-        info.label(text="�?Modificadores bakeados (copia temporal)")
-        info.label(text="�?Rot/Scale aplicados + Origin al centro")
-        info.label(text="�?Posición a (0,0,0) + carpeta por objeto")
+        info.label(text="• Modificadores bakeados (copia temporal)")
+        info.label(text="• Rot/Scale aplicados + Origin al centro")
+        info.label(text="• Posición a (0,0,0) + carpeta por objeto")
 
         last = bpy.path.abspath(props.last_export_dir) if props.last_export_dir else ""
         row = box.row()
         row.label(text="Última carpeta:", icon="FILE_FOLDER")
         row2 = box.row()
         row2.enabled = False
-        row2.label(text=last if last else "�?)
+        row2.label(text=last if last else "—")
 
         box.separator()
 
@@ -779,15 +741,10 @@ classes = (
 
 
 def register():
-    global _preview_col
-    _preview_col = bpy.utils.previews.new()
-
     for c in classes:
         bpy.utils.register_class(c)
 
     bpy.types.Scene.manwtool_props = PointerProperty(type=MANWTOOL_Properties)
-
-    _reload_logo()
     
     # Registrar handler para auto-check de actualizaciones
     if _auto_check_updates not in bpy.app.handlers.load_post:
@@ -795,8 +752,6 @@ def register():
 
 
 def unregister():
-    global _preview_col
-
     # Remover handler
     if _auto_check_updates in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_auto_check_updates)
@@ -805,10 +760,6 @@ def unregister():
 
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
-
-    if _preview_col is not None:
-        bpy.utils.previews.remove(_preview_col)
-        _preview_col = None
 
 
 if __name__ == "__main__":
