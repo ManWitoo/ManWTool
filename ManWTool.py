@@ -12,18 +12,123 @@ import os
 import bpy
 import bpy.utils.previews
 
+# --- AUTO UPDATE (nuevo) ---
+import json
+import time
+import tempfile
+import urllib.request
+import urllib.error
+
 from bpy.types import Panel, Operator, PropertyGroup, AddonPreferences
-from bpy.props import PointerProperty, StringProperty
+from bpy.props import PointerProperty, StringProperty, BoolProperty, IntProperty
 from bpy_extras.io_utils import ExportHelper
 
 
 ADDON_ID = __name__
 _preview_col = None  # logo
 
+# =================================================
+# AUTO UPDATE HELPERS (nuevo)
+# =================================================
 
-# -------------------------------------------------
-# Preferencias (logo)
-# -------------------------------------------------
+def _ver_tuple_to_str(vt):
+    return ".".join(map(str, vt))
+
+def _parse_version_tag(tag: str):
+    """
+    Convierte 'v0.0.8' o '0.0.8' en (0,0,8).
+    Si no puede, devuelve None.
+    """
+    if not tag:
+        return None
+    tag = tag.strip()
+    if tag.startswith(("v", "V")):
+        tag = tag[1:]
+    parts = tag.split(".")
+    try:
+        nums = tuple(int(p) for p in parts)
+        # normalizamos a 3 (si viene 0.0 -> 0.0.0)
+        if len(nums) == 1:
+            nums = (nums[0], 0, 0)
+        elif len(nums) == 2:
+            nums = (nums[0], nums[1], 0)
+        return nums
+    except Exception:
+        return None
+
+def _is_newer(remote, local):
+    # compara tuplas de distinta longitud de forma segura
+    r = list(remote)
+    l = list(local)
+    n = max(len(r), len(l))
+    r += [0] * (n - len(r))
+    l += [0] * (n - len(l))
+    return tuple(r) > tuple(l)
+
+def _github_latest_release(owner, repo):
+    """
+    Devuelve dict con info de la release: tag_name, assets, html_url...
+    Usa la API pública de GitHub.
+    """
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    req = urllib.request.Request(
+        api_url,
+        headers={
+            "User-Agent": "Blender-ManWTool-Updater"
+        }
+    )
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        data = resp.read().decode("utf-8")
+        return json.loads(data)
+
+def _find_asset_download_url(release_json, wanted_asset_name: str):
+    """
+    Busca un asset por nombre exacto (recomendado).
+    Si no lo encuentra, intenta coger el primer .zip.
+    """
+    assets = release_json.get("assets") or []
+    if wanted_asset_name:
+        for a in assets:
+            if a.get("name") == wanted_asset_name:
+                return a.get("browser_download_url")
+    # fallback: primer zip
+    for a in assets:
+        name = (a.get("name") or "").lower()
+        if name.endswith(".zip"):
+            return a.get("browser_download_url")
+    return None
+
+def _download_to_temp(url: str):
+    """
+    Descarga a un .zip temporal y devuelve el filepath.
+    """
+    if not url:
+        return None
+    fd, temp_path = tempfile.mkstemp(suffix=".zip", prefix="manwtool_update_")
+    os.close(fd)
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Blender-ManWTool-Updater"}
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        with open(temp_path, "wb") as f:
+            f.write(resp.read())
+    return temp_path
+
+def _popup(context, title, message_lines, icon="INFO"):
+    def draw(self, _context):
+        for line in message_lines:
+            self.layout.label(text=line)
+    context.window_manager.popup_menu(draw, title=title, icon=icon)
+
+def _get_prefs():
+    addon = bpy.context.preferences.addons.get(ADDON_ID)
+    return addon.preferences if addon else None
+
+
+# =================================================
+# Preferencias (logo + updater)  ✅ ampliado
+# =================================================
 class MANWTOOL_Preferences(AddonPreferences):
     bl_idname = ADDON_ID
 
@@ -34,11 +139,66 @@ class MANWTOOL_Preferences(AddonPreferences):
         default="",
     )
 
+    # --------- AUTO UPDATE PREFS (nuevo) ----------
+    github_owner: StringProperty(
+        name="GitHub Owner",
+        description="Usuario/organización de GitHub",
+        default="ManWitoo",
+    )
+    github_repo: StringProperty(
+        name="GitHub Repo",
+        description="Nombre del repositorio en GitHub",
+        default="ManWTool",
+    )
+    release_asset_name: StringProperty(
+        name="Nombre del ZIP en la Release",
+        description="Nombre exacto del asset .zip subido a la Release (recomendado). Si lo dejas vacío, cogerá el primer .zip",
+        default="ManWTool.zip",  # CAMBIA ESTO si tu ZIP se llama distinto
+    )
+
+    auto_check_updates: BoolProperty(
+        name="Comprobar actualizaciones automáticamente",
+        default=True,
+    )
+    check_every_hours: IntProperty(
+        name="Comprobar cada (horas)",
+        default=12,
+        min=1,
+        max=168,
+    )
+
+    last_check_unix: IntProperty(
+        name="(Interno) Última comprobación",
+        default=0,
+    )
+    last_notified_version: StringProperty(
+        name="(Interno) Última versión notificada",
+        default="",
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.label(text="Preferencias de ManWTool")
-        layout.prop(self, "logo_path")
-        layout.label(text="Sugerencia: PNG cuadrado (128x128 o 256x256).")
+
+        box = layout.box()
+        box.label(text="Apariencia", icon="IMAGE_DATA")
+        box.prop(self, "logo_path")
+        box.label(text="Sugerencia: PNG cuadrado (128x128 o 256x256).")
+
+        box2 = layout.box()
+        box2.label(text="Auto Update (GitHub Releases)", icon="FILE_REFRESH")
+        box2.prop(self, "github_owner")
+        box2.prop(self, "github_repo")
+        box2.prop(self, "release_asset_name")
+        box2.prop(self, "auto_check_updates")
+        box2.prop(self, "check_every_hours")
+
+        row = box2.row(align=True)
+        row.operator("manwtool.check_updates", icon="VIEWZOOM", text="Comprobar ahora")
+        row.operator("manwtool.force_update", icon="IMPORT", text="Actualizar (si hay)")
+
+        box2.separator()
+        box2.label(text=f"Versión instalada: {_ver_tuple_to_str(bl_info['version'])}")
 
 
 def _reload_logo():
@@ -74,6 +234,207 @@ def _get_logo_icon_value():
     if key in _preview_col:
         return _preview_col[key].icon_id
     return None
+
+
+# =================================================
+# Updater Operators (nuevo)
+# =================================================
+class MANWTOOL_OT_check_updates(Operator):
+    bl_idname = "manwtool.check_updates"
+    bl_label = "Comprobar actualizaciones"
+
+    def execute(self, context):
+        prefs = _get_prefs()
+        if not prefs:
+            self.report({"ERROR"}, "No se encontraron preferencias del addon.")
+            return {"CANCELLED"}
+
+        owner = (prefs.github_owner or "").strip()
+        repo = (prefs.github_repo or "").strip()
+        if not owner or not repo or owner == "CAMBIA_ESTO" or repo == "CAMBIA_ESTO":
+            _popup(context, "Auto Update", [
+                "Configura GitHub Owner y GitHub Repo en Preferencias.",
+                "Luego crea una Release con un .zip del addon."
+            ], icon="ERROR")
+            return {"CANCELLED"}
+
+        try:
+            rel = _github_latest_release(owner, repo)
+            tag = rel.get("tag_name") or ""
+            remote_ver = _parse_version_tag(tag)
+            local_ver = bl_info.get("version", (0, 0, 0))
+            if not remote_ver:
+                _popup(context, "Auto Update", [
+                    "No he podido leer la versión de la Release (tag_name).",
+                    f"tag_name recibido: {tag!r}"
+                ], icon="ERROR")
+                return {"CANCELLED"}
+
+            if _is_newer(remote_ver, local_ver):
+                _popup(context, "Actualización disponible", [
+                    f"Instalada: {_ver_tuple_to_str(local_ver)}",
+                    f"Disponible: {_ver_tuple_to_str(remote_ver)}",
+                    "Pulsa 'Actualizar (si hay)' en Preferencias."
+                ], icon="INFO")
+            else:
+                _popup(context, "Sin novedades", [
+                    f"Ya estás en la última: {_ver_tuple_to_str(local_ver)}"
+                ], icon="CHECKMARK")
+        except urllib.error.HTTPError as e:
+            _popup(context, "Auto Update (error)", [
+                f"HTTPError: {e.code}",
+                "¿Repo privado o nombre mal escrito?"
+            ], icon="ERROR")
+            return {"CANCELLED"}
+        except Exception as e:
+            _popup(context, "Auto Update (error)", [
+                "No se pudo comprobar la actualización.",
+                f"Detalle: {type(e).__name__}"
+            ], icon="ERROR")
+            return {"CANCELLED"}
+
+        return {"FINISHED"}
+
+
+class MANWTOOL_OT_force_update(Operator):
+    bl_idname = "manwtool.force_update"
+    bl_label = "Actualizar addon (si hay)"
+
+    def execute(self, context):
+        prefs = _get_prefs()
+        if not prefs:
+            self.report({"ERROR"}, "No se encontraron preferencias del addon.")
+            return {"CANCELLED"}
+
+        owner = (prefs.github_owner or "").strip()
+        repo = (prefs.github_repo or "").strip()
+        if not owner or not repo or owner == "CAMBIA_ESTO" or repo == "CAMBIA_ESTO":
+            _popup(context, "Auto Update", [
+                "Configura GitHub Owner y GitHub Repo en Preferencias."
+            ], icon="ERROR")
+            return {"CANCELLED"}
+
+        try:
+            rel = _github_latest_release(owner, repo)
+            tag = rel.get("tag_name") or ""
+            remote_ver = _parse_version_tag(tag)
+            local_ver = bl_info.get("version", (0, 0, 0))
+
+            if not remote_ver:
+                _popup(context, "Auto Update", [
+                    "No he podido leer la versión de la Release (tag_name)."
+                ], icon="ERROR")
+                return {"CANCELLED"}
+
+            if not _is_newer(remote_ver, local_ver):
+                _popup(context, "Auto Update", [
+                    "No hay actualización nueva.",
+                    f"Versión actual: {_ver_tuple_to_str(local_ver)}"
+                ], icon="CHECKMARK")
+                return {"CANCELLED"}
+
+            wanted = (prefs.release_asset_name or "").strip()
+            url = _find_asset_download_url(rel, wanted)
+            if not url:
+                _popup(context, "Auto Update", [
+                    "No encontré un asset .zip en la Release.",
+                    "Sube un .zip como asset o revisa el nombre exacto."
+                ], icon="ERROR")
+                return {"CANCELLED"}
+
+            zip_path = _download_to_temp(url)
+            if not zip_path or not os.path.isfile(zip_path):
+                _popup(context, "Auto Update", [
+                    "No se pudo descargar el .zip."
+                ], icon="ERROR")
+                return {"CANCELLED"}
+
+            # Instalar (sobrescribe si es el mismo addon)
+            bpy.ops.preferences.addon_install(filepath=zip_path, overwrite=True)
+
+            # Habilitar (por si se deshabilita al instalar)
+            bpy.ops.preferences.addon_enable(module=ADDON_ID)
+
+            # Guardar preferencias para que persista
+            bpy.ops.wm.save_userpref()
+
+            _popup(context, "Actualizado", [
+                f"Instalado: {_ver_tuple_to_str(remote_ver)}",
+                "Recomendación: reinicia Blender para asegurarte",
+                "de que todo recarga limpio."
+            ], icon="CHECKMARK")
+
+            # Limpieza temp
+            try:
+                os.remove(zip_path)
+            except Exception:
+                pass
+
+        except Exception as e:
+            _popup(context, "Auto Update (error)", [
+                "Falló la actualización.",
+                f"Detalle: {type(e).__name__}"
+            ], icon="ERROR")
+            return {"CANCELLED"}
+
+        return {"FINISHED"}
+
+
+# =================================================
+# Timer de auto-check (nuevo)
+# =================================================
+def _auto_update_timer():
+    """
+    Se ejecuta cada cierto tiempo.
+    Si hay una versión nueva y aún no se notificó, saca un popup.
+    """
+    prefs = _get_prefs()
+    if not prefs:
+        return 3600  # reintenta en 1h
+
+    if not prefs.auto_check_updates:
+        return max(3600, int(prefs.check_every_hours) * 3600)
+
+    owner = (prefs.github_owner or "").strip()
+    repo = (prefs.github_repo or "").strip()
+    if not owner or not repo or owner == "CAMBIA_ESTO" or repo == "CAMBIA_ESTO":
+        return max(3600, int(prefs.check_every_hours) * 3600)
+
+    now = int(time.time())
+    interval = max(3600, int(prefs.check_every_hours) * 3600)
+
+    # evita chequear demasiado a menudo
+    if prefs.last_check_unix and (now - prefs.last_check_unix) < interval:
+        return interval
+
+    prefs.last_check_unix = now
+
+    try:
+        rel = _github_latest_release(owner, repo)
+        tag = rel.get("tag_name") or ""
+        remote_ver = _parse_version_tag(tag)
+        local_ver = bl_info.get("version", (0, 0, 0))
+        if not remote_ver:
+            return interval
+
+        if _is_newer(remote_ver, local_ver):
+            remote_str = _ver_tuple_to_str(remote_ver)
+            # notifica solo si no lo hemos notificado ya
+            if (prefs.last_notified_version or "") != remote_str:
+                prefs.last_notified_version = remote_str
+
+                # popup en UI (necesitamos un contexto válido; si no, lo omitimos)
+                wm = bpy.context.window_manager
+                if wm:
+                    def draw(self, _context):
+                        self.layout.label(text=f"Nueva versión disponible: {remote_str}")
+                        self.layout.label(text="Ve a Preferencias > Add-ons > ManWTool")
+                        self.layout.label(text="y pulsa 'Actualizar (si hay)'.")
+                    wm.popup_menu(draw, title="ManWTool: actualización", icon="INFO")
+    except Exception:
+        pass
+
+    return interval
 
 
 # -------------------------------------------------
@@ -528,10 +889,8 @@ class MANWTOOL_PT_export(MANWTOOL_PT_base):
         # Botones en fila (Export / ReExport)
         row = box.row(align=True)
         row.scale_y = 1.35
-
-        b1 = row.operator("manwtool.export_fbx", text="Export", icon="EXPORT")
-        # b1 es solo estético; enable va sobre la fila/botón
         row.enabled = can_run
+        row.operator("manwtool.export_fbx", text="Export", icon="EXPORT")
 
         # Para que ReExport dependa también de tener carpeta guardada:
         row2 = box.row(align=True)
@@ -546,6 +905,11 @@ class MANWTOOL_PT_export(MANWTOOL_PT_base):
 classes = (
     MANWTOOL_Preferences,
     MANWTOOL_Properties,
+
+    # updater
+    MANWTOOL_OT_check_updates,
+    MANWTOOL_OT_force_update,
+
     MANWTOOL_OT_create_folders,
     MANWTOOL_OT_rename_geo_data_material,
     MANWTOOL_OT_export_fbx,
@@ -566,6 +930,12 @@ def register():
     bpy.types.Scene.manwtool_props = PointerProperty(type=MANWTOOL_Properties)
 
     _reload_logo()
+
+    # Timer auto-check
+    try:
+        bpy.app.timers.register(_auto_update_timer, persistent=True)
+    except Exception:
+        pass
 
 
 def unregister():
