@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (0, 0, 9),
+    "version": (0, 0, 8),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado y export FBX con ReExport.",
