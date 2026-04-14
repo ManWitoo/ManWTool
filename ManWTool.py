@@ -1,10 +1,10 @@
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (0, 0, 8),
+    "version": (0, 2, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
-    "description": "Colecciones, renombrado y export FBX con ReExport.",
+    "description": "Colecciones, renombrado, export FBX y validator automatico en export.",
     "category": "3D View",
 }
 
@@ -16,6 +16,7 @@ import json
 import zipfile
 import tempfile
 import shutil
+import time
 
 from bpy.types import Panel, Operator, PropertyGroup, AddonPreferences
 from bpy.props import PointerProperty, StringProperty, BoolProperty
@@ -38,6 +39,8 @@ _update_info = {
     "notes": "",
     "error": None,
 }
+
+VALID_COLLECTION_SUFFIXES = ("_High", "_Low", "_Reference")
 
 
 # -------------------------------------------------
@@ -370,6 +373,124 @@ def _big_button(row_or_layout):
     return r
 
 
+def _clean_export_name(name):
+    if not name:
+        return ""
+    if len(name) > 4 and name[-4] == "." and name[-3:].isdigit():
+        return name[:-4]
+    return name
+
+
+def _get_mesh_export_name_map(objects):
+    name_map = {}
+    for obj in objects:
+        if obj.type != "MESH":
+            continue
+        export_name = _clean_export_name(obj.name)
+        name_map.setdefault(export_name, []).append(obj)
+    return name_map
+
+
+def _collect_export_validation(context, objects):
+    mesh_objects = [obj for obj in objects if obj and obj.name in bpy.data.objects and obj.type == "MESH"]
+    scene_meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+    scene_name_map = _get_mesh_export_name_map(scene_meshes)
+
+    results = []
+    summary = {
+        "objects_checked": len(mesh_objects),
+        "warning_count": 0,
+        "transform_issues": 0,
+        "duplicate_issues": 0,
+        "collection_issues": 0,
+    }
+
+    for obj in mesh_objects:
+        transform_issues = []
+        if any(abs(value) > 0.0001 for value in obj.location):
+            transform_issues.append(f"location={tuple(round(v, 4) for v in obj.location)}")
+        if any(abs(value) > 0.0001 for value in obj.rotation_euler):
+            transform_issues.append(f"rotation={tuple(round(v, 4) for v in obj.rotation_euler)}")
+        if any(abs(value - 1.0) > 0.0001 for value in obj.scale):
+            transform_issues.append(f"scale={tuple(round(v, 4) for v in obj.scale)}")
+
+        export_name = _clean_export_name(obj.name)
+        duplicate_names = [other.name for other in scene_name_map.get(export_name, []) if other.name != obj.name]
+
+        collection_names = [col.name for col in obj.users_collection]
+        collection_issues = []
+        if not collection_names:
+            collection_issues.append("sin coleccion asignada")
+        else:
+            if len(collection_names) > 1:
+                collection_issues.append(f"multiples colecciones={', '.join(collection_names)}")
+            if not any(name.endswith(VALID_COLLECTION_SUFFIXES) for name in collection_names):
+                collection_issues.append(f"fuera de coleccion esperada={', '.join(collection_names)}")
+
+        summary["transform_issues"] += len(transform_issues)
+        summary["duplicate_issues"] += len(duplicate_names)
+        summary["collection_issues"] += len(collection_issues)
+        summary["warning_count"] += int(bool(transform_issues or duplicate_names or collection_issues))
+
+        results.append(
+            {
+                "object_name": obj.name,
+                "export_name": export_name,
+                "transform_issues": transform_issues,
+                "duplicate_names": duplicate_names,
+                "collection_names": collection_names,
+                "collection_issues": collection_issues,
+            }
+        )
+
+    return {
+        "summary": summary,
+        "results": results,
+    }
+
+
+def _write_export_validation_report(base_dir, validation_data):
+    base_dir = bpy.path.abspath(base_dir)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    report_path = os.path.join(base_dir, f"manwtool_export_report_{timestamp}.txt")
+
+    summary = validation_data.get("summary", {})
+    lines = [
+        "ManWTool Export Validation Report",
+        f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "Validation Summary",
+        f"- Objetos revisados: {summary.get('objects_checked', 0)}",
+        f"- Objetos con avisos: {summary.get('warning_count', 0)}",
+        f"- Issues de transform: {summary.get('transform_issues', 0)}",
+        f"- Issues de duplicados: {summary.get('duplicate_issues', 0)}",
+        f"- Issues de colecciones: {summary.get('collection_issues', 0)}",
+        "",
+        "Per Object",
+    ]
+
+    for item in validation_data.get("results", []):
+        lines.append(f"* {item['object_name']} -> {item['export_name']}")
+        if item["transform_issues"]:
+            lines.append(f"  - Transform: {' | '.join(item['transform_issues'])}")
+        if item["duplicate_names"]:
+            lines.append(f"  - Duplicados: {', '.join(item['duplicate_names'])}")
+        if item["collection_names"]:
+            lines.append(f"  - Colecciones: {', '.join(item['collection_names'])}")
+        else:
+            lines.append("  - Colecciones: ninguna")
+        if item["collection_issues"]:
+            lines.append(f"  - Issues coleccion: {' | '.join(item['collection_issues'])}")
+        if not item["transform_issues"] and not item["duplicate_names"] and not item["collection_issues"]:
+            lines.append("  - Estado: OK")
+        lines.append("")
+
+    with open(report_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+
+    return report_path
+
+
 # -------------------------------------------------
 # Export core
 # -------------------------------------------------
@@ -382,7 +503,7 @@ def _export_active_mesh_to_fbx(context, base_dir, report_fn):
         report_fn({"ERROR"}, "El objeto activo no es un MESH.")
         return False
 
-    export_name = src.name
+    export_name = _clean_export_name(src.name)
 
     if not base_dir:
         report_fn({"ERROR"}, "Carpeta de exportación no válida.")
@@ -395,6 +516,22 @@ def _export_active_mesh_to_fbx(context, base_dir, report_fn):
         except Exception:
             report_fn({"ERROR"}, "No se pudo crear/usar la carpeta de exportación.")
             return False
+
+    validation = _collect_export_validation(context, [src])
+    summary = validation["summary"]
+    report_path = _write_export_validation_report(base_dir, validation)
+    if summary["warning_count"] > 0:
+        report_fn(
+            {"WARNING"},
+            "Validator | "
+            f"Objetos con avisos: {summary['warning_count']} | "
+            f"Transform: {summary['transform_issues']} | "
+            f"Duplicados: {summary['duplicate_issues']} | "
+            f"Colecciones: {summary['collection_issues']}",
+        )
+    else:
+        report_fn({"INFO"}, "Validator | Sin avisos en transform, duplicados o colecciones.")
+    report_fn({"INFO"}, f"Informe generado: {report_path}")
 
     export_dir = os.path.join(base_dir, export_name)
     os.makedirs(export_dir, exist_ok=True)
