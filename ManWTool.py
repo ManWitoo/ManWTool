@@ -17,7 +17,7 @@ from bpy_extras.io_utils import ExportHelper, ImportHelper
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (0, 2, 1),
+    "version": (1, 0, 3),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
@@ -559,6 +559,82 @@ def ensure_object_mode():
         bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def count_multi_user_meshes(objects):
+    count = 0
+    for obj in objects:
+        if obj and obj.type == "MESH" and obj.data and obj.data.users > 1:
+            count += 1
+    return count
+
+
+def apply_transformations_to_objects(
+    context,
+    objects,
+    *,
+    apply_location=True,
+    apply_rotation=True,
+    apply_scale=True,
+    set_origin=False,
+    move_to_origin=False,
+    reset_rotation_after=False,
+    make_single_user=False,
+):
+    if not objects:
+        return {"processed": 0, "single_user_made": 0, "failed": 0}
+
+    ensure_object_mode()
+    view_layer = context.view_layer
+    prev_active = view_layer.objects.active
+    prev_selected = list(context.selected_objects)
+    processed = 0
+    single_user_made = 0
+    failed = 0
+
+    try:
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in objects:
+            if obj and obj.name in bpy.data.objects:
+                obj.select_set(True)
+
+        for obj in objects:
+            if obj is None or obj.name not in bpy.data.objects or obj.type != "MESH" or not obj.data:
+                continue
+
+            try:
+                view_layer.objects.active = obj
+                if make_single_user and obj.data.users > 1:
+                    obj.data = obj.data.copy()
+                    single_user_made += 1
+
+                bpy.ops.object.transform_apply(
+                    location=bool(apply_location),
+                    rotation=bool(apply_rotation),
+                    scale=bool(apply_scale),
+                )
+                if set_origin:
+                    bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
+                if move_to_origin:
+                    obj.location = (0.0, 0.0, 0.0)
+                if reset_rotation_after:
+                    obj.rotation_euler = (0.0, 0.0, 0.0)
+                processed += 1
+            except Exception:
+                failed += 1
+    finally:
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in prev_selected:
+            if obj.name in bpy.data.objects:
+                obj.select_set(True)
+        if prev_active and prev_active.name in bpy.data.objects:
+            view_layer.objects.active = prev_active
+
+    return {
+        "processed": processed,
+        "single_user_made": single_user_made,
+        "failed": failed,
+    }
+
+
 def apply_export_prep_to_object(context, obj):
     ensure_object_mode()
     view_layer = context.view_layer
@@ -826,43 +902,18 @@ def apply_material_pack_to_imported_objects(objects, materials_dir):
 def prepare_imported_objects(context, objects, apply_scale=True, reset_rotation=True, move_to_origin=True):
     if not objects:
         return 0
-
-    ensure_object_mode()
-    view_layer = context.view_layer
-    prev_active = view_layer.objects.active
-    prev_selected = list(context.selected_objects)
-    processed = 0
-
-    try:
-        bpy.ops.object.select_all(action="DESELECT")
-        for obj in objects:
-            if obj.name in bpy.data.objects:
-                obj.select_set(True)
-
-        for obj in objects:
-            if obj.name not in bpy.data.objects or obj.type != "MESH":
-                continue
-            view_layer.objects.active = obj
-            bpy.ops.object.transform_apply(
-                location=False,
-                rotation=bool(reset_rotation),
-                scale=bool(apply_scale),
-            )
-            bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
-            if move_to_origin:
-                obj.location = (0.0, 0.0, 0.0)
-            if reset_rotation:
-                obj.rotation_euler = (0.0, 0.0, 0.0)
-            processed += 1
-    finally:
-        bpy.ops.object.select_all(action="DESELECT")
-        for obj in prev_selected:
-            if obj.name in bpy.data.objects:
-                obj.select_set(True)
-        if prev_active and prev_active.name in bpy.data.objects:
-            view_layer.objects.active = prev_active
-
-    return processed
+    result = apply_transformations_to_objects(
+        context,
+        objects,
+        apply_location=False,
+        apply_rotation=bool(reset_rotation),
+        apply_scale=bool(apply_scale),
+        set_origin=True,
+        move_to_origin=bool(move_to_origin),
+        reset_rotation_after=bool(reset_rotation),
+        make_single_user=True,
+    )
+    return result["processed"]
 
 
 def active_obj_status(context):
@@ -938,6 +989,7 @@ class MANWTOOL_Properties(PropertyGroup):
         items=[
             ("FOLDERS", "Colecciones", ""),
             ("RENAME", "Renombrar", ""),
+            ("TRANSFORM", "Transform", ""),
             ("EXPORT", "Exportar", ""),
             ("IMPORT", "Importar", ""),
         ],
@@ -1317,6 +1369,41 @@ class MANWTOOL_OT_select_all_meshes(Operator):
         return {"FINISHED"}
 
 
+class MANWTOOL_OT_apply_selected_transforms(Operator):
+    bl_idname = "manwtool.apply_selected_transforms"
+    bl_label = "Aplicar transformaciones"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        selected_meshes = get_mesh_objects_from_selection(context)
+        if not selected_meshes:
+            self.report({"ERROR"}, "No hay objetos MESH seleccionados.")
+            return {"CANCELLED"}
+
+        result = apply_transformations_to_objects(
+            context,
+            selected_meshes,
+            apply_location=True,
+            apply_rotation=True,
+            apply_scale=True,
+            make_single_user=True,
+        )
+
+        if result["processed"] == 0:
+            self.report({"ERROR"}, "No se pudieron aplicar transformaciones.")
+            return {"CANCELLED"}
+
+        level = {"WARNING"} if result["failed"] else {"INFO"}
+        self.report(
+            level,
+            "Transformaciones aplicadas | "
+            f"Procesados: {result['processed']} | "
+            f"Single-user: {result['single_user_made']} | "
+            f"Fallidos: {result['failed']}",
+        )
+        return {"FINISHED"}
+
+
 class MANWTOOL_OT_export_multiple_fbx(Operator):
     bl_idname = "manwtool.export_multiple_fbx"
     bl_label = "Exportar multiple"
@@ -1598,6 +1685,33 @@ def draw_section_export(layout, context, props):
     btn.operator("manwtool.export_multiple_fbx", icon="EXPORT")
 
 
+def draw_section_transform(layout, context, props):
+    selected_meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+    multi_user_count = count_multi_user_meshes(selected_meshes)
+
+    box = layout.box()
+    box.label(text="Transformaciones en lote", icon="OBJECT_ORIGIN")
+
+    draw_status_lines(
+        box,
+        [
+            f"MESH seleccionados: {len(selected_meshes)}",
+            f"Con data compartida: {multi_user_count}",
+            "El boton crea single-user donde haga falta y aplica location, rotation y scale.",
+        ],
+    )
+
+    info = box.box()
+    info.enabled = False
+    info.label(text="Evita el error de Blender al aplicar transforms sobre meshes compartidos.")
+    info.label(text="La operacion mantiene la seleccion y procesa cada objeto por separado.")
+
+    big_button(box).operator("manwtool.select_all_meshes", icon="RESTRICT_SELECT_OFF")
+    btn = big_button(box)
+    btn.enabled = len(selected_meshes) > 0
+    btn.operator("manwtool.apply_selected_transforms", icon="CHECKMARK")
+
+
 def draw_section_import(layout, context, props):
     status = get_import_requirements_status(props)
     box = layout.box()
@@ -1664,6 +1778,7 @@ class MANWTOOL_PT_main(Panel):
         nav.scale_y = 1.3
         nav.prop_enum(props, "ui_section", "FOLDERS", text="", icon="FILE_FOLDER")
         nav.prop_enum(props, "ui_section", "RENAME", text="", icon="FILE_TEXT")
+        nav.prop_enum(props, "ui_section", "TRANSFORM", text="", icon="OBJECT_ORIGIN")
         nav.prop_enum(props, "ui_section", "EXPORT", text="", icon="EXPORT")
         nav.prop_enum(props, "ui_section", "IMPORT", text="", icon="IMPORT")
 
@@ -1672,6 +1787,8 @@ class MANWTOOL_PT_main(Panel):
             draw_section_folders(content, context, props)
         elif props.ui_section == "RENAME":
             draw_section_rename(content, context, props)
+        elif props.ui_section == "TRANSFORM":
+            draw_section_transform(content, context, props)
         elif props.ui_section == "EXPORT":
             draw_section_export(content, context, props)
         else:
@@ -1697,6 +1814,7 @@ classes = (
     MANWTOOL_OT_export_fbx,
     MANWTOOL_OT_reexport_fbx,
     MANWTOOL_OT_select_all_meshes,
+    MANWTOOL_OT_apply_selected_transforms,
     MANWTOOL_OT_export_multiple_fbx,
     MANWTOOL_OT_import_fbx_pack,
     MANWTOOL_PT_main,

@@ -9,6 +9,7 @@ ManWTool centraliza varias tareas repetitivas de produccion en una sola herramie
 - crea estructura de colecciones para assets
 - renombra objeto, mesh data y material con una sola accion
 - exporta FBX generando una carpeta por objeto
+- aplica transformaciones en lote aunque haya meshes compartidos
 - guarda la ultima carpeta para `ReExport`
 - comprueba actualizaciones desde GitHub
 - valida automaticamente el asset al exportar
@@ -51,7 +52,17 @@ El export:
 
 Tambien incluye `ReExport`, usando la ultima ruta guardada.
 
-### 4. Asset Validator automatico
+### 4. Transformaciones en lote
+
+Incluye un apartado especifico para:
+
+- seleccionar muchas geometrias
+- convertir automaticamente a `single-user` los meshes compartidos cuando haga falta
+- aplicar `location`, `rotation` y `scale` en lote
+
+Esto evita el error de Blender al intentar aplicar transformaciones sobre datos compartidos.
+
+### 5. Asset Validator automatico
 
 Al darle a export no aparece un boton nuevo: la validacion se ejecuta sola.
 
@@ -68,7 +79,7 @@ Actualmente revisa:
   - objeto en varias colecciones
   - objeto fuera de las colecciones esperadas `_High`, `_Low`, `_Reference`
 
-### 5. Informe automatico
+### 6. Informe automatico
 
 Cada export genera un informe `.txt` en la carpeta de exportacion con:
 
@@ -79,7 +90,7 @@ Cada export genera un informe `.txt` en la carpeta de exportacion con:
 
 Esto permite revisar rapidamente si el asset esta limpio antes de seguir con Substance, Unreal u otro flujo.
 
-### 6. Auto update por GitHub
+### 7. Auto update por GitHub
 
 El addon puede:
 
@@ -108,7 +119,7 @@ El addon puede:
 
 ## Version actual
 
-`v0.2.0`
+`v1.0.3`
 
 ## Roadmap corto
 
@@ -116,4 +127,3 @@ El addon puede:
 - mejorar el sistema de updater
 - ampliar el validator con reglas opcionales
 - mejorar import y materiales para casos de produccion
-
