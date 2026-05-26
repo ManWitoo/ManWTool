@@ -17,7 +17,7 @@ from bpy_extras.io_utils import ExportHelper, ImportHelper
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (1, 0, 3),
+    "version": (1, 0, 4),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
@@ -60,6 +60,55 @@ TEXTURE_RULES = {
 }
 
 VALID_COLLECTION_SUFFIXES = ("_High", "_Low", "_Reference")
+
+COLLECTION_TARGET_SUFFIXES = {
+    "HIGH": "_High",
+    "LOW": "_Low",
+    "REFERENCE": "_Reference",
+}
+
+COLLECTION_TARGET_LABELS = {
+    "HIGH": "High",
+    "LOW": "Low",
+    "REFERENCE": "Reference",
+}
+
+COLLECTION_COLOR_TAGS = {
+    "HIGH": "COLOR_01",
+    "LOW": "COLOR_03",
+    "REFERENCE": "COLOR_05",
+}
+
+EXPORT_PRESETS = {
+    "UNREAL": {
+        "label": "Unreal",
+        "axis_forward": "-Z",
+        "axis_up": "Y",
+        "apply_unit_scale": True,
+        "use_mesh_modifiers": False,
+    },
+    "UNITY": {
+        "label": "Unity",
+        "axis_forward": "-Z",
+        "axis_up": "Y",
+        "apply_unit_scale": True,
+        "use_mesh_modifiers": False,
+    },
+    "HIGHPOLY": {
+        "label": "Highpoly Bake",
+        "axis_forward": "-Z",
+        "axis_up": "Y",
+        "apply_unit_scale": True,
+        "use_mesh_modifiers": True,
+    },
+    "LOWPOLY": {
+        "label": "Lowpoly Game",
+        "axis_forward": "-Z",
+        "axis_up": "Y",
+        "apply_unit_scale": True,
+        "use_mesh_modifiers": False,
+    },
+}
 
 
 def current_version_str():
@@ -401,6 +450,110 @@ def collection_has_child(parent, child_name):
     return parent.children.get(child_name) is not None
 
 
+def get_collection_structure_names(base_name: str):
+    base = (base_name or "").strip() or "Asset"
+    return {
+        "ROOT": base,
+        "HIGH": f"{base}{COLLECTION_TARGET_SUFFIXES['HIGH']}",
+        "LOW": f"{base}{COLLECTION_TARGET_SUFFIXES['LOW']}",
+        "REFERENCE": f"{base}{COLLECTION_TARGET_SUFFIXES['REFERENCE']}",
+    }
+
+
+def ensure_collection_structure(scene, base_name: str):
+    names = get_collection_structure_names(base_name)
+    root_col = bpy.data.collections.get(names["ROOT"])
+    if root_col is None:
+        root_col = bpy.data.collections.new(names["ROOT"])
+
+    if scene.collection.children.get(root_col.name) is None:
+        scene.collection.children.link(root_col)
+
+    collections = {"ROOT": root_col}
+    for target, child_name in names.items():
+        if target == "ROOT":
+            continue
+        col = bpy.data.collections.get(child_name)
+        if col is None:
+            col = bpy.data.collections.new(child_name)
+        if root_col.children.get(col.name) is None:
+            root_col.children.link(col)
+        col.color_tag = COLLECTION_COLOR_TAGS[target]
+        collections[target] = col
+    return collections
+
+
+def move_object_to_collection(obj, target_collection, unlink_existing=True):
+    if obj is None or target_collection is None:
+        return False
+
+    if unlink_existing:
+        for collection in list(obj.users_collection):
+            try:
+                collection.objects.unlink(obj)
+            except Exception:
+                pass
+
+    if target_collection.objects.get(obj.name) is None:
+        target_collection.objects.link(obj)
+    return True
+
+
+def move_objects_to_target_collection(scene, objects, base_name: str, target: str):
+    structure = ensure_collection_structure(scene, base_name)
+    target_collection = structure.get(target)
+    moved = 0
+    for obj in objects:
+        if move_object_to_collection(obj, target_collection, unlink_existing=True):
+            moved += 1
+    return moved
+
+
+def infer_collection_target_from_name(name: str, default_target="HIGH"):
+    normalized = (name or "").lower()
+    if "reference" in normalized or "_ref" in normalized or " ref" in normalized:
+        return "REFERENCE"
+    if "low" in normalized:
+        return "LOW"
+    if "high" in normalized:
+        return "HIGH"
+    return default_target
+
+
+def auto_organize_objects(scene, objects, base_name: str, default_target="HIGH"):
+    structure = ensure_collection_structure(scene, base_name)
+    summary = {"HIGH": 0, "LOW": 0, "REFERENCE": 0, "TOTAL": 0}
+
+    for obj in objects:
+        target = infer_collection_target_from_name(obj.name, default_target=default_target)
+        if move_object_to_collection(obj, structure.get(target), unlink_existing=True):
+            summary[target] += 1
+            summary["TOTAL"] += 1
+    return summary
+
+
+def get_export_settings_for_props(props):
+    preset = (getattr(props, "export_preset", "UNREAL") or "UNREAL").strip().upper()
+    if preset == "CUSTOM":
+        return {
+            "label": "Custom",
+            "axis_forward": getattr(props, "export_axis_forward", "-Z"),
+            "axis_up": getattr(props, "export_axis_up", "Y"),
+            "apply_unit_scale": bool(getattr(props, "export_apply_unit_scale", True)),
+            "use_mesh_modifiers": bool(getattr(props, "export_use_mesh_modifiers", False)),
+        }
+    return dict(EXPORT_PRESETS.get(preset, EXPORT_PRESETS["UNREAL"]))
+
+
+def format_export_settings_lines(settings):
+    return [
+        f"Preset: {settings['label']}",
+        f"Axis: {settings['axis_forward']} / {settings['axis_up']}",
+        f"Apply unit scale: {'Si' if settings['apply_unit_scale'] else 'No'}",
+        f"Usar modificadores: {'Si' if settings['use_mesh_modifiers'] else 'No'}",
+    ]
+
+
 def ensure_valid_export_dir(base_dir, report_fn):
     if not base_dir:
         report_fn({"ERROR"}, "Carpeta no valida.")
@@ -660,7 +813,7 @@ def apply_export_prep_to_object(context, obj):
             view_layer.objects.active = prev_active
 
 
-def export_mesh_object_to_fbx(context, src, base_dir, report_fn):
+def export_mesh_object_to_fbx(context, src, base_dir, report_fn, export_settings=None):
     if src is None:
         report_fn({"ERROR"}, "No hay objeto para exportar.")
         return False
@@ -700,6 +853,8 @@ def export_mesh_object_to_fbx(context, src, base_dir, report_fn):
     tmp_col.objects.link(tmp_obj)
     tmp_obj.matrix_world = src.matrix_world.copy()
 
+    settings = export_settings or get_export_settings_for_props(context.scene.manwtool_props)
+
     try:
         apply_export_prep_to_object(context, tmp_obj)
         bpy.ops.object.select_all(action="DESELECT")
@@ -709,11 +864,11 @@ def export_mesh_object_to_fbx(context, src, base_dir, report_fn):
             filepath=final_fbx_path,
             use_selection=True,
             object_types={"MESH"},
-            apply_unit_scale=True,
-            axis_forward="-Z",
-            axis_up="Y",
+            apply_unit_scale=bool(settings["apply_unit_scale"]),
+            axis_forward=settings["axis_forward"],
+            axis_up=settings["axis_up"],
             add_leaf_bones=False,
-            use_mesh_modifiers=False,
+            use_mesh_modifiers=bool(settings["use_mesh_modifiers"]),
         )
     except Exception as exc:
         report_fn({"ERROR"}, f"Error exportando {src.name}: {exc}")
@@ -997,10 +1152,57 @@ class MANWTOOL_Properties(PropertyGroup):
     )
 
     root_name: StringProperty(name="Raiz", default="Asset")
+    collection_target: EnumProperty(
+        name="Destino",
+        items=[
+            ("HIGH", "High", "Mover a la coleccion High"),
+            ("LOW", "Low", "Mover a la coleccion Low"),
+            ("REFERENCE", "Reference", "Mover a la coleccion Reference"),
+        ],
+        default="HIGH",
+    )
+    collection_auto_detect: BoolProperty(name="Auto detectar por nombre", default=True)
     rename_prefix: StringProperty(name="Prefijo", default="SM_")
     rename_base: StringProperty(name="Nombre", default="Object")
     export_dir: StringProperty(name="Carpeta exportacion", subtype="DIR_PATH", default="")
     last_export_dir: StringProperty(name="Ultima carpeta", subtype="DIR_PATH", default="")
+    export_preset: EnumProperty(
+        name="Preset",
+        items=[
+            ("UNREAL", "Unreal", "Preset de export pensado para Unreal"),
+            ("UNITY", "Unity", "Preset de export pensado para Unity"),
+            ("HIGHPOLY", "Highpoly Bake", "Usa modificadores para sacar un highpoly limpio"),
+            ("LOWPOLY", "Lowpoly Game", "Export de lowpoly para juego"),
+            ("CUSTOM", "Custom", "Configuracion manual"),
+        ],
+        default="UNREAL",
+    )
+    export_axis_forward: EnumProperty(
+        name="Axis Forward",
+        items=[
+            ("X", "X Forward", ""),
+            ("Y", "Y Forward", ""),
+            ("Z", "Z Forward", ""),
+            ("-X", "-X Forward", ""),
+            ("-Y", "-Y Forward", ""),
+            ("-Z", "-Z Forward", ""),
+        ],
+        default="-Z",
+    )
+    export_axis_up: EnumProperty(
+        name="Axis Up",
+        items=[
+            ("X", "X Forward", ""),
+            ("Y", "Y Forward", ""),
+            ("Z", "Z Forward", ""),
+            ("-X", "-X Forward", ""),
+            ("-Y", "-Y Forward", ""),
+            ("-Z", "-Z Forward", ""),
+        ],
+        default="Y",
+    )
+    export_apply_unit_scale: BoolProperty(name="Apply Unit Scale", default=True)
+    export_use_mesh_modifiers: BoolProperty(name="Usar modificadores", default=False)
     import_fbx_path: StringProperty(name="FBX", subtype="FILE_PATH", default="")
     import_materials_dir: StringProperty(name="Carpeta materiales", subtype="DIR_PATH", default="")
     reset_import_rotation: BoolProperty(name="Rotacion a 0", default=True)
@@ -1024,12 +1226,24 @@ def get_export_requirements_status(context, props):
     current_dir = get_current_export_dir(props)
     active = context.active_object
     selected_meshes = get_mesh_objects_from_selection(context)
+    export_settings = get_export_settings_for_props(props)
     return {
         "current_dir": current_dir,
         "has_export_dir": bool(current_dir),
         "active_mesh_ok": bool(active and active.type == "MESH"),
         "selected_meshes": selected_meshes,
         "selected_count": len(selected_meshes),
+        "export_settings": export_settings,
+    }
+
+
+def get_collection_requirements_status(context, props):
+    selected_meshes = get_mesh_objects_from_selection(context)
+    return {
+        "selected_meshes": selected_meshes,
+        "selected_count": len(selected_meshes),
+        "target": props.collection_target,
+        "root_name": (props.root_name or "").strip() or "Asset",
     }
 
 
@@ -1242,31 +1456,62 @@ class MANWTOOL_OT_create_folders(Operator):
         if not base:
             self.report({"ERROR"}, "Escribe un nombre para la raiz.")
             return {"CANCELLED"}
+        ensure_collection_structure(context.scene, base)
+        self.report({"INFO"}, f"Estructura creada: {base}, {base}_High, {base}_Low, {base}_Reference")
+        return {"FINISHED"}
 
-        root_name = base
-        high_name = f"{base}_High"
-        low_name = f"{base}_Low"
-        ref_name = f"{base}_Reference"
 
-        root_col = bpy.data.collections.get(root_name)
-        if root_col is None:
-            root_col = bpy.data.collections.new(root_name)
-            context.scene.collection.children.link(root_col)
-        elif context.scene.collection.children.get(root_col.name) is None:
-            context.scene.collection.children.link(root_col)
+class MANWTOOL_OT_move_selected_to_collection(Operator):
+    bl_idname = "manwtool.move_selected_to_collection"
+    bl_label = "Mover seleccion"
+    bl_options = {"REGISTER", "UNDO"}
 
-        def ensure_child(parent, child_name):
-            col = bpy.data.collections.get(child_name)
-            if col is None:
-                col = bpy.data.collections.new(child_name)
-            if not collection_has_child(parent, child_name):
-                parent.children.link(col)
-            return col
+    def execute(self, context):
+        props = context.scene.manwtool_props
+        selected_meshes = get_mesh_objects_from_selection(context)
+        if not selected_meshes:
+            self.report({"ERROR"}, "No hay objetos MESH seleccionados.")
+            return {"CANCELLED"}
 
-        ensure_child(root_col, high_name).color_tag = "COLOR_01"
-        ensure_child(root_col, low_name).color_tag = "COLOR_03"
-        ensure_child(root_col, ref_name).color_tag = "COLOR_05"
-        self.report({"INFO"}, f"Estructura creada: {root_name}, {high_name}, {low_name}, {ref_name}")
+        moved = move_objects_to_target_collection(context.scene, selected_meshes, props.root_name, props.collection_target)
+        self.report({"INFO"}, f"{moved} objeto(s) movido(s) a {props.collection_target}.")
+        return {"FINISHED"}
+
+
+class MANWTOOL_OT_auto_organize_collections(Operator):
+    bl_idname = "manwtool.auto_organize_collections"
+    bl_label = "Auto organizar"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.manwtool_props
+        selected_meshes = get_mesh_objects_from_selection(context)
+        if not selected_meshes:
+            self.report({"ERROR"}, "No hay objetos MESH seleccionados.")
+            return {"CANCELLED"}
+
+        if props.collection_auto_detect:
+            summary = auto_organize_objects(
+                context.scene,
+                selected_meshes,
+                props.root_name,
+                default_target=props.collection_target,
+            )
+        else:
+            moved = move_objects_to_target_collection(
+                context.scene,
+                selected_meshes,
+                props.root_name,
+                props.collection_target,
+            )
+            summary = {"HIGH": 0, "LOW": 0, "REFERENCE": 0, "TOTAL": moved}
+            summary[props.collection_target] = moved
+
+        self.report(
+            {"INFO"},
+            "Colecciones organizadas | "
+            f"High: {summary['HIGH']} | Low: {summary['LOW']} | Reference: {summary['REFERENCE']}",
+        )
         return {"FINISHED"}
 
 
@@ -1331,8 +1576,9 @@ class MANWTOOL_OT_export_fbx(Operator, ExportHelper):
         props = context.scene.manwtool_props
         props.export_dir = chosen_dir
         props.last_export_dir = chosen_dir
+        export_settings = get_export_settings_for_props(props)
         run_export_validation_and_report(context, [context.active_object], chosen_dir, self.report)
-        ok = export_mesh_object_to_fbx(context, context.active_object, chosen_dir, self.report)
+        ok = export_mesh_object_to_fbx(context, context.active_object, chosen_dir, self.report, export_settings=export_settings)
         return {"FINISHED"} if ok else {"CANCELLED"}
 
 
@@ -1348,8 +1594,9 @@ class MANWTOOL_OT_reexport_fbx(Operator):
             self.report({"ERROR"}, "Selecciona primero una carpeta de exportacion.")
             return {"CANCELLED"}
         props.last_export_dir = base_dir
+        export_settings = get_export_settings_for_props(props)
         run_export_validation_and_report(context, [context.active_object], base_dir, self.report)
-        ok = export_mesh_object_to_fbx(context, context.active_object, base_dir, self.report)
+        ok = export_mesh_object_to_fbx(context, context.active_object, base_dir, self.report, export_settings=export_settings)
         return {"FINISHED"} if ok else {"CANCELLED"}
 
 
@@ -1422,6 +1669,7 @@ class MANWTOOL_OT_export_multiple_fbx(Operator):
             return {"CANCELLED"}
 
         props.last_export_dir = base_dir
+        export_settings = get_export_settings_for_props(props)
         validation, _ = run_export_validation_and_report(context, selected_meshes, base_dir, self.report, write_report=False)
         exported = 0
         skipped_duplicates = 0
@@ -1434,7 +1682,7 @@ class MANWTOOL_OT_export_multiple_fbx(Operator):
                 skipped_duplicates += 1
                 continue
             processed_names.add(export_name)
-            if export_mesh_object_to_fbx(context, obj, base_dir, self.report):
+            if export_mesh_object_to_fbx(context, obj, base_dir, self.report, export_settings=export_settings):
                 exported += 1
             else:
                 failed += 1
@@ -1594,6 +1842,7 @@ def draw_status_lines(layout, lines):
 
 
 def draw_section_folders(layout, context, props):
+    status = get_collection_requirements_status(context, props)
     box = layout.box()
     box.label(text="Estructura de colecciones", icon="OUTLINER_COLLECTION")
     box.prop(props, "root_name", text="Raiz")
@@ -1604,6 +1853,27 @@ def draw_section_folders(layout, context, props):
     preview.label(text=f"Se crearan: {base}, {base}_High, {base}_Low, {base}_Reference")
 
     big_button(box).operator("manwtool.create_folders", icon="PLUS")
+
+    manage = layout.box()
+    manage.label(text="Gestion automatica", icon="SORTALPHA")
+    manage.prop(props, "collection_target", text="Destino")
+    manage.prop(props, "collection_auto_detect")
+    draw_status_lines(
+        manage,
+        [
+            f"MESH seleccionados: {status['selected_count']}",
+            f"Destino actual: {COLLECTION_TARGET_LABELS.get(status['target'], status['target'])}",
+        ],
+    )
+
+    row = manage.row(align=True)
+    row.scale_y = 1.2
+    row.enabled = status["selected_count"] > 0
+    row.operator("manwtool.move_selected_to_collection", icon="TRIA_RIGHT")
+    auto_row = manage.row(align=True)
+    auto_row.scale_y = 1.2
+    auto_row.enabled = status["selected_count"] > 0
+    auto_row.operator("manwtool.auto_organize_collections", icon="FILE_REFRESH")
 
 
 def draw_section_rename(layout, context, props):
@@ -1634,6 +1904,18 @@ def draw_section_rename(layout, context, props):
 def draw_section_export(layout, context, props):
     status = get_export_requirements_status(context, props)
     active_name = context.active_object.name if context.active_object else "Ninguno"
+
+    preset_box = layout.box()
+    preset_box.label(text="Preset de export", icon="PRESET")
+    preset_box.prop(props, "export_preset", text="Preset")
+    if props.export_preset == "CUSTOM":
+        col = preset_box.column(align=True)
+        col.prop(props, "export_axis_forward")
+        col.prop(props, "export_axis_up")
+        col.prop(props, "export_apply_unit_scale")
+        col.prop(props, "export_use_mesh_modifiers")
+    else:
+        draw_status_lines(preset_box, format_export_settings_lines(status["export_settings"]))
 
     draw_path_picker(
         layout,
@@ -1697,14 +1979,8 @@ def draw_section_transform(layout, context, props):
         [
             f"MESH seleccionados: {len(selected_meshes)}",
             f"Con data compartida: {multi_user_count}",
-            "El boton crea single-user donde haga falta y aplica location, rotation y scale.",
         ],
     )
-
-    info = box.box()
-    info.enabled = False
-    info.label(text="Evita el error de Blender al aplicar transforms sobre meshes compartidos.")
-    info.label(text="La operacion mantiene la seleccion y procesa cada objeto por separado.")
 
     big_button(box).operator("manwtool.select_all_meshes", icon="RESTRICT_SELECT_OFF")
     btn = big_button(box)
@@ -1810,6 +2086,8 @@ classes = (
     MANWTOOL_OT_pick_import_fbx,
     MANWTOOL_OT_pick_materials_dir,
     MANWTOOL_OT_create_folders,
+    MANWTOOL_OT_move_selected_to_collection,
+    MANWTOOL_OT_auto_organize_collections,
     MANWTOOL_OT_rename_geo_data_material,
     MANWTOOL_OT_export_fbx,
     MANWTOOL_OT_reexport_fbx,

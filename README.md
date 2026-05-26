@@ -7,8 +7,10 @@ Addon para Blender orientado a acelerar tareas de pipeline de assets: organizaci
 ManWTool centraliza varias tareas repetitivas de produccion en una sola herramienta:
 
 - crea estructura de colecciones para assets
+- mueve y organiza seleccion automaticamente en `High`, `Low` y `Reference`
 - renombra objeto, mesh data y material con una sola accion
 - exporta FBX generando una carpeta por objeto
+- usa presets de export para `Unreal`, `Unity`, `Highpoly Bake`, `Lowpoly Game` y `Custom`
 - aplica transformaciones en lote aunque haya meshes compartidos
 - guarda la ultima carpeta para `ReExport`
 - comprueba actualizaciones desde GitHub
@@ -27,6 +29,11 @@ Permite crear una estructura base para trabajar un asset:
 - `Asset_Reference`
 
 Esto ayuda a mantener una organizacion estable para modelado, baking y export.
+
+Ahora tambien permite:
+
+- mover la seleccion a la coleccion objetivo con un click
+- autoorganizar por nombre detectando `high`, `low` o `reference`
 
 ### 2. Renombrado
 
@@ -51,6 +58,14 @@ El export:
 - exporta un `.fbx` dentro de esa carpeta
 
 Tambien incluye `ReExport`, usando la ultima ruta guardada.
+
+Ahora incluye presets de export para:
+
+- `Unreal`
+- `Unity`
+- `Highpoly Bake`
+- `Lowpoly Game`
+- `Custom`
 
 ### 4. Transformaciones en lote
 
@@ -119,7 +134,7 @@ El addon puede:
 
 ## Version actual
 
-`v1.0.3`
+`v1.0.4`
 
 ## Roadmap corto
 
