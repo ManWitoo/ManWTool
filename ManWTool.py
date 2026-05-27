@@ -572,8 +572,16 @@ def get_mesh_objects_from_selection(context):
     return [obj for obj in context.selected_objects if obj.type == "MESH"]
 
 
+def get_empty_objects_from_selection(context):
+    return [obj for obj in context.selected_objects if obj.type == "EMPTY"]
+
+
 def get_visible_mesh_objects(context):
     return [obj for obj in context.view_layer.objects if obj.visible_get() and obj.type == "MESH"]
+
+
+def get_visible_empty_objects(context):
+    return [obj for obj in context.view_layer.objects if obj.visible_get() and obj.type == "EMPTY"]
 
 
 def get_current_export_dir(props):
@@ -750,12 +758,12 @@ def apply_transformations_to_objects(
                 obj.select_set(True)
 
         for obj in objects:
-            if obj is None or obj.name not in bpy.data.objects or obj.type != "MESH" or not obj.data:
+            if obj is None or obj.name not in bpy.data.objects or obj.type not in {"MESH", "EMPTY"}:
                 continue
 
             try:
                 view_layer.objects.active = obj
-                if make_single_user and obj.data.users > 1:
+                if obj.type == "MESH" and make_single_user and obj.data and obj.data.users > 1:
                     obj.data = obj.data.copy()
                     single_user_made += 1
 
@@ -1616,6 +1624,22 @@ class MANWTOOL_OT_select_all_meshes(Operator):
         return {"FINISHED"}
 
 
+class MANWTOOL_OT_select_all_empties(Operator):
+    bl_idname = "manwtool.select_all_empties"
+    bl_label = "Seleccionar todos los empties"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        bpy.ops.object.select_all(action="DESELECT")
+        empties = get_visible_empty_objects(context)
+        for obj in empties:
+            obj.select_set(True)
+        if empties:
+            context.view_layer.objects.active = empties[0]
+        self.report({"INFO"}, f"{len(empties)} empty(s) seleccionado(s).")
+        return {"FINISHED"}
+
+
 class MANWTOOL_OT_apply_selected_transforms(Operator):
     bl_idname = "manwtool.apply_selected_transforms"
     bl_label = "Aplicar transformaciones"
@@ -1623,13 +1647,15 @@ class MANWTOOL_OT_apply_selected_transforms(Operator):
 
     def execute(self, context):
         selected_meshes = get_mesh_objects_from_selection(context)
-        if not selected_meshes:
-            self.report({"ERROR"}, "No hay objetos MESH seleccionados.")
+        selected_empties = get_empty_objects_from_selection(context)
+        selected_objects = selected_meshes + selected_empties
+        if not selected_objects:
+            self.report({"ERROR"}, "No hay objetos MESH o EMPTY seleccionados.")
             return {"CANCELLED"}
 
         result = apply_transformations_to_objects(
             context,
-            selected_meshes,
+            selected_objects,
             apply_location=True,
             apply_rotation=True,
             apply_scale=True,
@@ -1846,10 +1872,10 @@ def draw_single_object_transform(layout, obj):
     box.label(text="Transform", icon="ORIENTATION_GLOBAL")
 
     col = box.column(align=True)
-    col.use_property_split = True
+    col.use_property_split = False
     col.use_property_decorate = False
 
-    col.prop(obj, "location")
+    col.prop(obj, "location", text="Location")
 
     if obj.rotation_mode == "QUATERNION":
         col.prop(obj, "rotation_quaternion", text="Rotation")
@@ -1858,9 +1884,7 @@ def draw_single_object_transform(layout, obj):
     else:
         col.prop(obj, "rotation_euler", text="Rotation")
 
-    col.prop(obj, "rotation_mode", text="Mode")
-    col.prop(obj, "scale")
-    col.prop(obj, "dimensions")
+    col.prop(obj, "scale", text="Scale")
 
 
 def draw_section_folders(layout, context, props):
@@ -1994,6 +2018,7 @@ def draw_section_transform(layout, context, props):
 
     selected_objects = context.selected_objects
     selected_meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+    selected_empties = [obj for obj in context.selected_objects if obj.type == "EMPTY"]
     multi_user_count = count_multi_user_meshes(selected_meshes)
 
     box = layout.box()
@@ -2003,16 +2028,21 @@ def draw_section_transform(layout, context, props):
         box,
         [
             f"MESH seleccionados: {len(selected_meshes)}",
+            f"EMPTY seleccionados: {len(selected_empties)}",
             f"Con data compartida: {multi_user_count}",
         ],
     )
 
-    if len(selected_objects) == 1 and len(selected_meshes) == 1:
-        draw_single_object_transform(box, selected_meshes[0])
+    if len(selected_objects) == 1 and selected_objects[0].type in {"MESH", "EMPTY"}:
+        draw_single_object_transform(box, selected_objects[0])
 
-    big_button(box).operator("manwtool.select_all_meshes", icon="RESTRICT_SELECT_OFF")
+    row = box.row(align=True)
+    row.scale_y = 1.2
+    row.operator("manwtool.select_all_meshes", text="Seleccionar MESH", icon="MESH_CUBE")
+    row.operator("manwtool.select_all_empties", text="Seleccionar EMPTY", icon="EMPTY_AXIS")
+
     btn = big_button(box)
-    btn.enabled = len(selected_meshes) > 0
+    btn.enabled = len(selected_meshes) > 0 or len(selected_empties) > 0
     btn.operator("manwtool.apply_selected_transforms", icon="CHECKMARK")
 
 
@@ -2120,6 +2150,7 @@ classes = (
     MANWTOOL_OT_export_fbx,
     MANWTOOL_OT_reexport_fbx,
     MANWTOOL_OT_select_all_meshes,
+    MANWTOOL_OT_select_all_empties,
     MANWTOOL_OT_apply_selected_transforms,
     MANWTOOL_OT_export_multiple_fbx,
     MANWTOOL_OT_import_fbx_pack,
