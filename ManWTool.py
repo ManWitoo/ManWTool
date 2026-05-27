@@ -1150,13 +1150,14 @@ class MANWTOOL_Properties(PropertyGroup):
     ui_section: EnumProperty(
         name="Seccion",
         items=[
+            ("SUMMARY", "Resumen", ""),
             ("FOLDERS", "Colecciones", ""),
             ("RENAME", "Renombrar", ""),
             ("TRANSFORM", "Transform", ""),
             ("EXPORT", "Exportar", ""),
             ("IMPORT", "Importar", ""),
         ],
-        default="EXPORT",
+        default="SUMMARY",
     )
 
     root_name: StringProperty(name="Raiz", default="Asset")
@@ -1172,6 +1173,7 @@ class MANWTOOL_Properties(PropertyGroup):
     collection_auto_detect: BoolProperty(name="Auto detectar por nombre", default=True)
     rename_prefix: StringProperty(name="Prefijo", default="SM_")
     rename_base: StringProperty(name="Nombre", default="Object")
+    mesh_name_filter: StringProperty(name="Buscar geometria", default="")
     export_dir: StringProperty(name="Carpeta exportacion", subtype="DIR_PATH", default="")
     last_export_dir: StringProperty(name="Ultima carpeta", subtype="DIR_PATH", default="")
     export_preset: EnumProperty(
@@ -1624,6 +1626,31 @@ class MANWTOOL_OT_select_all_meshes(Operator):
         return {"FINISHED"}
 
 
+class MANWTOOL_OT_select_meshes_by_name(Operator):
+    bl_idname = "manwtool.select_meshes_by_name"
+    bl_label = "Seleccionar geometria por nombre"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.manwtool_props
+        search = (props.mesh_name_filter or "").strip().lower()
+        if not search:
+            self.report({"ERROR"}, "Escribe un texto para buscar en el nombre.")
+            return {"CANCELLED"}
+
+        bpy.ops.object.select_all(action="DESELECT")
+        meshes = [obj for obj in get_visible_mesh_objects(context) if search in obj.name.lower()]
+        for obj in meshes:
+            obj.select_set(True)
+        if meshes:
+            context.view_layer.objects.active = meshes[0]
+            self.report({"INFO"}, f"{len(meshes)} geometria(s) seleccionada(s) con '{props.mesh_name_filter}'.")
+            return {"FINISHED"}
+
+        self.report({"WARNING"}, f"No se encontro geometria con '{props.mesh_name_filter}'.")
+        return {"CANCELLED"}
+
+
 class MANWTOOL_OT_select_all_empties(Operator):
     bl_idname = "manwtool.select_all_empties"
     bl_label = "Seleccionar todos los empties"
@@ -1867,6 +1894,149 @@ def draw_status_lines(layout, lines):
         info.label(text=line)
 
 
+def draw_section_tabs(layout, props):
+    split = layout.split(factor=0.16, align=True)
+    nav = split.column(align=True)
+    nav.scale_y = 1.3
+    nav.prop_enum(props, "ui_section", "SUMMARY", text="", icon="HOME")
+    nav.prop_enum(props, "ui_section", "FOLDERS", text="", icon="FILE_FOLDER")
+    nav.prop_enum(props, "ui_section", "RENAME", text="", icon="FILE_TEXT")
+    nav.prop_enum(props, "ui_section", "TRANSFORM", text="", icon="OBJECT_ORIGIN")
+    nav.prop_enum(props, "ui_section", "EXPORT", text="", icon="EXPORT")
+    nav.prop_enum(props, "ui_section", "IMPORT", text="", icon="IMPORT")
+    return split.column(align=True)
+
+
+def draw_summary_metrics(layout, context, props):
+    selected_objects = list(context.selected_objects)
+    selected_meshes = [obj for obj in selected_objects if obj.type == "MESH"]
+    selected_empties = [obj for obj in selected_objects if obj.type == "EMPTY"]
+    active = context.active_object
+    export_dir = get_current_export_dir(props) or "-"
+
+    box = layout.box()
+    box.label(text="Resumen del asset", icon="INFO")
+
+    col = box.column(align=True)
+    col.enabled = False
+    col.label(text=f"Activo: {active.name if active else 'Ninguno'}")
+    col.label(text=f"MESH seleccionados: {len(selected_meshes)}")
+    col.label(text=f"EMPTY seleccionados: {len(selected_empties)}")
+    col.label(text=f"Data compartida: {count_multi_user_meshes(selected_meshes)}")
+    col.label(text=f"Export dir: {bpy.path.abspath(export_dir) if export_dir != '-' else '-'}")
+
+
+def draw_summary_validator(layout, context):
+    selected_meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+    box = layout.box()
+    box.label(text="Validator", icon="CHECKMARK")
+
+    if not selected_meshes:
+        info = box.column(align=True)
+        info.enabled = False
+        info.label(text="Selecciona al menos un MESH para validar.")
+        return
+
+    validation = collect_export_validation(context, selected_meshes)
+    summary = validation["summary"]
+    level = "OK"
+    icon = "CHECKMARK"
+    if summary["warning_count"] > 0:
+        level = "WARN"
+        icon = "ERROR"
+        box.alert = True
+
+    header = box.row(align=True)
+    header.label(text=f"Estado: {level}", icon=icon)
+    header.label(text=f"Objetos revisados: {summary['objects_checked']}")
+
+    col = box.column(align=True)
+    col.enabled = False
+    col.label(text=f"Transforms: {summary['transform_issues']}")
+    col.label(text=f"Duplicados: {summary['duplicate_issues']}")
+    col.label(text=f"Colecciones: {summary['collection_issues']}")
+
+
+def draw_summary_actions(layout, context, props):
+    selected_meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+    selected_empties = [obj for obj in context.selected_objects if obj.type == "EMPTY"]
+    active = context.active_object
+    export_status = get_export_requirements_status(context, props)
+    collection_status = get_collection_requirements_status(context, props)
+
+    box = layout.box()
+    box.label(text="Acciones rapidas", icon="TOOL_SETTINGS")
+
+    rename = box.box()
+    rename.label(text="Naming", icon="FILE_TEXT")
+    rename.prop(props, "rename_prefix")
+    rename.prop(props, "rename_base")
+    btn = big_button(rename)
+    btn.enabled = bool(active and active.type == "MESH")
+    btn.operator("manwtool.rename_geo_data_material", text="Aplicar nombre", icon="FILE_TICK")
+
+    collections = box.box()
+    collections.label(text="Colecciones", icon="OUTLINER_COLLECTION")
+    collections.prop(props, "root_name", text="Raiz")
+    collections.prop(props, "collection_target", text="Destino")
+    collections.prop(props, "collection_auto_detect")
+    row = collections.row(align=True)
+    row.scale_y = 1.15
+    row.operator("manwtool.create_folders", text="Crear estructura", icon="PLUS")
+    move_row = collections.row(align=True)
+    move_row.scale_y = 1.15
+    move_row.enabled = collection_status["selected_count"] > 0
+    move_row.operator("manwtool.move_selected_to_collection", text="Mover", icon="TRIA_RIGHT")
+    move_row.operator("manwtool.auto_organize_collections", text="Auto organizar", icon="FILE_REFRESH")
+
+    transforms = box.box()
+    transforms.label(text="Transform", icon="OBJECT_ORIGIN")
+    find = transforms.row(align=True)
+    find.prop(props, "mesh_name_filter", text="", icon="VIEWZOOM")
+    find.operator("manwtool.select_meshes_by_name", text="", icon="RESTRICT_SELECT_OFF")
+    row = transforms.row(align=True)
+    row.scale_y = 1.1
+    row.operator("manwtool.select_all_meshes", text="Seleccionar MESH", icon="MESH_CUBE")
+    row.operator("manwtool.select_all_empties", text="Seleccionar EMPTY", icon="EMPTY_AXIS")
+    btn = big_button(transforms)
+    btn.enabled = len(selected_meshes) > 0 or len(selected_empties) > 0
+    btn.operator("manwtool.apply_selected_transforms", text="Aplicar transforms", icon="CHECKMARK")
+
+    export_box = box.box()
+    export_box.label(text="Export", icon="EXPORT")
+    export_box.prop(props, "export_preset", text="Preset")
+    if props.export_preset == "CUSTOM":
+        col = export_box.column(align=True)
+        col.prop(props, "export_axis_forward")
+        col.prop(props, "export_axis_up")
+        col.prop(props, "export_apply_unit_scale")
+        col.prop(props, "export_use_mesh_modifiers")
+    export_box.operator("manwtool.pick_export_dir", text="Seleccionar carpeta", icon="FILE_FOLDER")
+    row = export_box.row(align=True)
+    row.scale_y = 1.2
+    row.enabled = export_status["active_mesh_ok"]
+    row.operator("manwtool.export_fbx", text="Export activo", icon="EXPORT")
+    row2 = export_box.row(align=True)
+    row2.scale_y = 1.2
+    row2.enabled = export_status["active_mesh_ok"] and export_status["has_export_dir"]
+    row2.operator("manwtool.reexport_fbx", text="ReExport", icon="FILE_REFRESH")
+    row3 = export_box.row(align=True)
+    row3.scale_y = 1.2
+    row3.enabled = export_status["has_export_dir"] and export_status["selected_count"] > 0
+    row3.operator("manwtool.export_multiple_fbx", text="Export multiple", icon="COPYDOWN")
+
+
+def draw_section_summary(layout, context, props):
+    draw_summary_metrics(layout, context, props)
+    draw_summary_validator(layout, context)
+
+    active = context.active_object
+    if active and active.type in {"MESH", "EMPTY"} and len(context.selected_objects) == 1:
+        draw_single_object_transform(layout, active)
+
+    draw_summary_actions(layout, context, props)
+
+
 def draw_single_object_transform(layout, obj):
     box = layout.box()
     box.label(text="Transform", icon="ORIENTATION_GLOBAL")
@@ -2014,8 +2184,6 @@ def draw_section_export(layout, context, props):
 
 
 def draw_section_transform(layout, context, props):
-    del props
-
     selected_objects = context.selected_objects
     selected_meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
     selected_empties = [obj for obj in context.selected_objects if obj.type == "EMPTY"]
@@ -2035,6 +2203,10 @@ def draw_section_transform(layout, context, props):
 
     if len(selected_objects) == 1 and selected_objects[0].type in {"MESH", "EMPTY"}:
         draw_single_object_transform(box, selected_objects[0])
+
+    find = box.row(align=True)
+    find.prop(props, "mesh_name_filter", text="", icon="VIEWZOOM")
+    find.operator("manwtool.select_meshes_by_name", text="", icon="RESTRICT_SELECT_OFF")
 
     row = box.row(align=True)
     row.scale_y = 1.2
@@ -2107,17 +2279,10 @@ class MANWTOOL_PT_main(Panel):
         draw_update_box_if_needed(layout)
         layout.separator()
 
-        split = layout.split(factor=0.16, align=True)
-        nav = split.column(align=True)
-        nav.scale_y = 1.3
-        nav.prop_enum(props, "ui_section", "FOLDERS", text="", icon="FILE_FOLDER")
-        nav.prop_enum(props, "ui_section", "RENAME", text="", icon="FILE_TEXT")
-        nav.prop_enum(props, "ui_section", "TRANSFORM", text="", icon="OBJECT_ORIGIN")
-        nav.prop_enum(props, "ui_section", "EXPORT", text="", icon="EXPORT")
-        nav.prop_enum(props, "ui_section", "IMPORT", text="", icon="IMPORT")
-
-        content = split.column(align=True)
-        if props.ui_section == "FOLDERS":
+        content = draw_section_tabs(layout, props)
+        if props.ui_section == "SUMMARY":
+            draw_section_summary(content, context, props)
+        elif props.ui_section == "FOLDERS":
             draw_section_folders(content, context, props)
         elif props.ui_section == "RENAME":
             draw_section_rename(content, context, props)
@@ -2150,6 +2315,7 @@ classes = (
     MANWTOOL_OT_export_fbx,
     MANWTOOL_OT_reexport_fbx,
     MANWTOOL_OT_select_all_meshes,
+    MANWTOOL_OT_select_meshes_by_name,
     MANWTOOL_OT_select_all_empties,
     MANWTOOL_OT_apply_selected_transforms,
     MANWTOOL_OT_export_multiple_fbx,
