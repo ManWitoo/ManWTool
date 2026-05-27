@@ -1841,6 +1841,28 @@ def draw_status_lines(layout, lines):
         info.label(text=line)
 
 
+def draw_single_object_transform(layout, obj):
+    box = layout.box()
+    box.label(text="Transform", icon="ORIENTATION_GLOBAL")
+
+    col = box.column(align=True)
+    col.use_property_split = True
+    col.use_property_decorate = False
+
+    col.prop(obj, "location")
+
+    if obj.rotation_mode == "QUATERNION":
+        col.prop(obj, "rotation_quaternion", text="Rotation")
+    elif obj.rotation_mode == "AXIS_ANGLE":
+        col.prop(obj, "rotation_axis_angle", text="Rotation")
+    else:
+        col.prop(obj, "rotation_euler", text="Rotation")
+
+    col.prop(obj, "rotation_mode", text="Mode")
+    col.prop(obj, "scale")
+    col.prop(obj, "dimensions")
+
+
 def draw_section_folders(layout, context, props):
     status = get_collection_requirements_status(context, props)
     box = layout.box()
@@ -1968,6 +1990,9 @@ def draw_section_export(layout, context, props):
 
 
 def draw_section_transform(layout, context, props):
+    del props
+
+    selected_objects = context.selected_objects
     selected_meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
     multi_user_count = count_multi_user_meshes(selected_meshes)
 
@@ -1981,6 +2006,9 @@ def draw_section_transform(layout, context, props):
             f"Con data compartida: {multi_user_count}",
         ],
     )
+
+    if len(selected_objects) == 1 and len(selected_meshes) == 1:
+        draw_single_object_transform(box, selected_meshes[0])
 
     big_button(box).operator("manwtool.select_all_meshes", icon="RESTRICT_SELECT_OFF")
     btn = big_button(box)
