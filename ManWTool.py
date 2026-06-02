@@ -1,11 +1,17 @@
 import json
+import hashlib
 import os
+import platform
 import re
 import shutil
 import tempfile
 import threading
 import time
+import traceback
 import urllib.request
+import urllib.error
+import uuid
+import zipfile
 
 import bpy
 import bpy.utils.previews
@@ -29,6 +35,7 @@ ADDON_ID = "ManWTool"
 DEFAULT_REPO_OWNER = "ManWitoo"
 DEFAULT_REPO_NAME = "ManWTool"
 DEFAULT_ADDON_FILE = "ManWTool.py"
+LICENSE_CACHE_FILE = "license_cache.json"
 
 _preview_col = None
 
@@ -139,6 +146,148 @@ def get_addon_prefs():
         return None
 
 
+def is_debug_enabled():
+    prefs = get_addon_prefs()
+    return bool(getattr(prefs, "debug_logging", False)) if prefs else False
+
+
+def log_info(message: str):
+    print(f"[{ADDON_ID}] {message}")
+
+
+def log_debug(message: str):
+    if is_debug_enabled():
+        log_info(f"DEBUG | {message}")
+
+
+def log_exception(message: str, exc: Exception):
+    log_info(f"ERROR | {message}: {exc}")
+    if is_debug_enabled():
+        traceback.print_exc()
+
+
+def get_license_cache_path():
+    cache_dir = bpy.utils.user_resource("CONFIG", path="manwtool", create=True)
+    if not cache_dir:
+        raise RuntimeError("No se pudo resolver la carpeta de configuracion del addon.")
+    return os.path.join(cache_dir, LICENSE_CACHE_FILE)
+
+
+def get_machine_fingerprint():
+    raw = "|".join(
+        [
+            platform.system(),
+            platform.release(),
+            platform.machine(),
+            hex(uuid.getnode()),
+        ]
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16].upper()
+
+
+def load_license_cache():
+    path = get_license_cache_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception as exc:
+        log_exception("No se pudo leer la cache de licencia", exc)
+        return {}
+
+
+def save_license_cache(data):
+    path = get_license_cache_path()
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=True)
+    return path
+
+
+def clear_license_cache():
+    path = get_license_cache_path()
+    if os.path.isfile(path):
+        os.remove(path)
+
+
+def apply_license_state_to_prefs(data):
+    prefs = get_addon_prefs()
+    if not prefs:
+        return
+    prefs.license_active = bool(data.get("valid"))
+    prefs.license_status = data.get("status", "Sin activar")
+    prefs.license_valid_until = data.get("valid_until", "")
+    prefs.license_last_check = data.get("last_check", "")
+    prefs.license_hardware_id = data.get("hardware_id", get_machine_fingerprint())
+
+
+def validate_license_key_format(license_key: str):
+    key = (license_key or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9\\-]{10,128}", key):
+        raise RuntimeError("La clave de licencia no tiene un formato valido.")
+    return key
+
+
+def validate_license_with_server(email: str, license_key: str, server_url: str, timeout=15):
+    machine_id = get_machine_fingerprint()
+    payload = json.dumps(
+        {
+            "addon_id": ADDON_ID,
+            "addon_version": current_version_str(),
+            "email": (email or "").strip(),
+            "license_key": validate_license_key_format(license_key),
+            "machine_id": machine_id,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        (server_url or "").strip(),
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": f"{ADDON_ID}/{current_version_str()} (License Check)",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Servidor de licencias respondio {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"No se pudo contactar el servidor de licencias: {exc.reason}") from exc
+
+    valid = bool(data.get("valid"))
+    status = data.get("status") or ("Activa" if valid else "Licencia no valida")
+    result = {
+        "valid": valid,
+        "status": status,
+        "valid_until": (data.get("valid_until") or "").strip(),
+        "last_check": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "hardware_id": machine_id,
+        "email": (email or "").strip(),
+    }
+    save_license_cache(result)
+    apply_license_state_to_prefs(result)
+    return result
+
+
+def load_cached_license_into_prefs():
+    cached = load_license_cache()
+    if cached:
+        apply_license_state_to_prefs(cached)
+    else:
+        apply_license_state_to_prefs(
+            {
+                "valid": False,
+                "status": "Sin activar",
+                "last_check": "",
+                "valid_until": "",
+                "hardware_id": get_machine_fingerprint(),
+            }
+        )
+
+
 def github_latest_release_url(owner: str, repo: str):
     return f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
 
@@ -189,6 +338,28 @@ def download_file(url: str, dst_path: str, timeout=30):
             shutil.copyfileobj(resp, fh)
 
 
+def validate_release_zip(zip_path: str, expected_version: str = ""):
+    if not os.path.isfile(zip_path):
+        raise RuntimeError("El ZIP descargado no existe.")
+    if os.path.getsize(zip_path) > 150 * 1024 * 1024:
+        raise RuntimeError("El ZIP descargado es demasiado grande para ser una release valida.")
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = zf.namelist()
+        if not names:
+            raise RuntimeError("El ZIP descargado esta vacio.")
+        if "ManWTool.py" not in names:
+            raise RuntimeError("El ZIP no contiene ManWTool.py.")
+        source_text = zf.read("ManWTool.py").decode("utf-8", errors="replace")
+        version_tuple = version_tuple_from_source_text(source_text)
+        version_label = ".".join(map(str, version_tuple))
+        if expected_version and version_tuple_from_any(expected_version) != version_tuple:
+            raise RuntimeError(
+                f"La version descargada ({version_label}) no coincide con la esperada ({expected_version})."
+            )
+        return {"version": version_label}
+
+
 def call_in_preferences_context(op_func, **kwargs):
     wm = bpy.context.window_manager
     for win in wm.windows:
@@ -229,9 +400,7 @@ def version_tuple_from_source_text(source_text: str):
 
 def updater_thread_fn(owner: str, repo: str, asset_filter: str):
     release_error = ""
-    repo_error = ""
     release_candidate = None
-    repo_candidate = None
 
     try:
         release_data = http_get_json(github_latest_release_url(owner, repo))
@@ -241,9 +410,7 @@ def updater_thread_fn(owner: str, repo: str, asset_filter: str):
 
         download_url = select_best_zip_asset(release_data, asset_filter)
         if not download_url:
-            download_url = (release_data.get("zipball_url") or "").strip()
-        if not download_url:
-            raise RuntimeError("No se encontro un ZIP descargable en la release.")
+            raise RuntimeError("No se encontro un asset ZIP descargable en la release.")
         release_candidate = {
             "version_tuple": version_tuple_from_any(tag),
             "version_label": tag,
@@ -253,27 +420,9 @@ def updater_thread_fn(owner: str, repo: str, asset_filter: str):
         }
     except Exception as exc:
         release_error = str(exc)
+        log_exception("Fallo comprobando release de GitHub", exc)
 
-    try:
-        repo_data = http_get_json(github_repo_api_url(owner, repo))
-        default_branch = (repo_data.get("default_branch") or "main").strip() or "main"
-        source_text = http_get_text(github_raw_file_url(owner, repo, default_branch, DEFAULT_ADDON_FILE))
-        repo_version = version_tuple_from_source_text(source_text)
-        repo_candidate = {
-            "version_tuple": repo_version,
-            "version_label": ".".join(map(str, repo_version)),
-            "download_url": (repo_data.get("zipball_url") or "").strip(),
-            "download_kind": "ZIP",
-            "release_html_url": github_repo_html_url(owner, repo),
-        }
-    except Exception as exc:
-        repo_error = str(exc)
-
-    selected = None
-    if release_candidate and repo_candidate:
-        selected = repo_candidate if repo_candidate["version_tuple"] > release_candidate["version_tuple"] else release_candidate
-    else:
-        selected = release_candidate or repo_candidate
+    selected = release_candidate
 
     if selected:
         UPDATER_STATE.update(
@@ -289,7 +438,6 @@ def updater_thread_fn(owner: str, repo: str, asset_filter: str):
         )
         return
 
-    error_parts = [part for part in (release_error, repo_error) if part]
     UPDATER_STATE.update(
         {
             "done": True,
@@ -298,7 +446,7 @@ def updater_thread_fn(owner: str, repo: str, asset_filter: str):
             "download_url": "",
             "download_kind": "ZIP",
             "release_html_url": "",
-            "error": " | ".join(error_parts) if error_parts else "No se pudo comprobar GitHub.",
+            "error": release_error or "No se pudo comprobar GitHub.",
         }
     )
 
@@ -346,7 +494,8 @@ def start_update_check(force=False):
     )
     UPDATER_STATE["thread"] = thread
     thread.start()
-    bpy.app.timers.register(poll_update_check_timer, first_interval=0.2)
+    if not bpy.app.timers.is_registered(poll_update_check_timer):
+        bpy.app.timers.register(poll_update_check_timer, first_interval=0.2)
 
 
 def poll_update_check_timer():
@@ -711,6 +860,7 @@ def write_export_validation_report(base_dir, validation_data, export_summary=Non
     with open(report_path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
 
+    log_debug(f"Informe de validacion escrito en {report_path}")
     return report_path
 
 
@@ -752,16 +902,13 @@ def apply_transformations_to_objects(
     failed = 0
 
     try:
-        bpy.ops.object.select_all(action="DESELECT")
-        for obj in objects:
-            if obj and obj.name in bpy.data.objects:
-                obj.select_set(True)
-
         for obj in objects:
             if obj is None or obj.name not in bpy.data.objects or obj.type not in {"MESH", "EMPTY"}:
                 continue
 
             try:
+                bpy.ops.object.select_all(action="DESELECT")
+                obj.select_set(True)
                 view_layer.objects.active = obj
                 if obj.type == "MESH" and make_single_user and obj.data and obj.data.users > 1:
                     obj.data = obj.data.copy()
@@ -779,8 +926,9 @@ def apply_transformations_to_objects(
                 if reset_rotation_after:
                     obj.rotation_euler = (0.0, 0.0, 0.0)
                 processed += 1
-            except Exception:
+            except Exception as exc:
                 failed += 1
+                log_exception(f"Fallo aplicando transformaciones a {getattr(obj, 'name', '<desconocido>')}", exc)
     finally:
         bpy.ops.object.select_all(action="DESELECT")
         for obj in prev_selected:
@@ -835,7 +983,12 @@ def export_mesh_object_to_fbx(context, src, base_dir, report_fn, export_settings
 
     export_name = clean_export_name(src.name)
     export_dir = os.path.join(base_dir, export_name)
-    os.makedirs(export_dir, exist_ok=True)
+    try:
+        os.makedirs(export_dir, exist_ok=True)
+    except Exception as exc:
+        report_fn({"ERROR"}, f"No se pudo preparar la carpeta de exportacion para {src.name}: {exc}")
+        log_exception(f"No se pudo crear la carpeta de exportacion {export_dir}", exc)
+        return False
     final_fbx_path = os.path.join(export_dir, f"{export_name}.fbx")
 
     depsgraph = context.evaluated_depsgraph_get()
@@ -880,6 +1033,7 @@ def export_mesh_object_to_fbx(context, src, base_dir, report_fn, export_settings
         )
     except Exception as exc:
         report_fn({"ERROR"}, f"Error exportando {src.name}: {exc}")
+        log_exception(f"Error exportando {src.name}", exc)
         return False
     finally:
         try:
@@ -938,7 +1092,7 @@ def load_image(image_path, colorspace="sRGB"):
     try:
         image.colorspace_settings.name = colorspace
     except Exception:
-        pass
+        log_debug(f"No se pudo asignar el colorspace {colorspace} a {image_path}.")
     return image
 
 
@@ -951,7 +1105,7 @@ def clear_manw_texture_nodes(material):
         try:
             nodes.remove(node)
         except Exception:
-            pass
+            log_debug(f"No se pudo eliminar un nodo de textura previo en {material.name}.")
 
 
 def assign_textures_to_material(material, textures):
@@ -1095,7 +1249,9 @@ class MANWTOOL_Preferences(AddonPreferences):
     repo_name: StringProperty(name="GitHub Repo", default=DEFAULT_REPO_NAME)
     asset_name_contains: StringProperty(name="Filtro ZIP", default="ManWTool")
     auto_check_updates: BoolProperty(name="Comprobar al iniciar", default=True)
+    allow_in_app_update_install: BoolProperty(name="Permitir instalacion directa", default=False)
     check_interval_days: IntProperty(name="Intervalo (dias)", default=1, min=1, max=30)
+    debug_logging: BoolProperty(name="Debug logging", default=False)
     last_check_time: FloatProperty(default=0.0)
     update_available: BoolProperty(default=False)
     latest_version: StringProperty(default="")
@@ -1105,6 +1261,14 @@ class MANWTOOL_Preferences(AddonPreferences):
     last_update_error: StringProperty(default="")
     last_notified_version: StringProperty(default="")
     restart_required: BoolProperty(default=False)
+    license_server_url: StringProperty(name="License Server", default="")
+    license_email: StringProperty(name="Email licencia", default="")
+    license_key: StringProperty(name="Clave licencia", default="")
+    license_active: BoolProperty(default=False)
+    license_status: StringProperty(default="Sin activar")
+    license_valid_until: StringProperty(default="")
+    license_last_check: StringProperty(default="")
+    license_hardware_id: StringProperty(default="")
 
     def draw(self, context):
         layout = self.layout
@@ -1123,6 +1287,10 @@ class MANWTOOL_Preferences(AddonPreferences):
         row = box.row(align=True)
         row.prop(self, "auto_check_updates")
         row.prop(self, "check_interval_days")
+        box.prop(self, "allow_in_app_update_install")
+        warn = box.box()
+        warn.enabled = False
+        warn.label(text="Recomendado para venta: comprobar updates y distribuir el ZIP manualmente.")
         box.operator("manwtool.check_updates", text="Comprobar ahora", icon="VIEWZOOM")
 
         if self.update_available:
@@ -1130,9 +1298,11 @@ class MANWTOOL_Preferences(AddonPreferences):
             update_box.alert = True
             update_box.label(text=f"Update disponible: {self.latest_version} (tu: {current_version_str()})", icon="INFO")
             row = update_box.row(align=True)
+            row.enabled = self.allow_in_app_update_install
             row.operator("manwtool.install_update", text="Actualizar", icon="IMPORT")
             if self.latest_release_url:
-                row.operator("manwtool.open_release_page", text="Ver release", icon="URL")
+                release_row = update_box.row(align=True)
+                release_row.operator("manwtool.open_release_page", text="Ver release", icon="URL")
 
         if self.restart_required:
             restart_box = box.box()
@@ -1144,6 +1314,29 @@ class MANWTOOL_Preferences(AddonPreferences):
             err = box.box()
             err.alert = True
             err.label(text=f"Error: {self.last_update_error}", icon="ERROR")
+
+        debug = layout.box()
+        debug.label(text="Diagnostico", icon="CONSOLE")
+        debug.prop(self, "debug_logging")
+
+        license_box = layout.box()
+        license_box.label(text="Licencia", icon="KEYINGSET")
+        license_box.prop(self, "license_server_url")
+        license_box.prop(self, "license_email")
+        license_box.prop(self, "license_key")
+        row = license_box.row(align=True)
+        row.operator("manwtool.activate_license", text="Activar licencia", icon="CHECKMARK")
+        row.operator("manwtool.clear_license_cache", text="Limpiar licencia", icon="TRASH")
+
+        status = license_box.box()
+        status.enabled = False
+        status.label(text=f"Estado: {self.license_status}")
+        if self.license_valid_until:
+            status.label(text=f"Valida hasta: {self.license_valid_until}")
+        if self.license_last_check:
+            status.label(text=f"Ultima comprobacion: {self.license_last_check}")
+        if self.license_hardware_id:
+            status.label(text=f"Hardware ID: {self.license_hardware_id}")
 
 
 class MANWTOOL_Properties(PropertyGroup):
@@ -1317,6 +1510,10 @@ class MANWTOOL_OT_install_update(Operator):
             self.report({"ERROR"}, "No se pudieron leer las preferencias.")
             return {"CANCELLED"}
 
+        if not getattr(prefs, "allow_in_app_update_install", False):
+            self.report({"ERROR"}, "La instalacion directa esta desactivada. Activa la opcion en preferencias o instala el ZIP manualmente.")
+            return {"CANCELLED"}
+
         url = (prefs.latest_download_url or "").strip()
         if not url:
             self.report({"ERROR"}, "Primero ejecuta 'Comprobar ahora'.")
@@ -1327,15 +1524,17 @@ class MANWTOOL_OT_install_update(Operator):
 
         try:
             download_file(url, installer_path, timeout=60)
+            zip_info = validate_release_zip(installer_path, expected_version=prefs.latest_version)
             call_in_preferences_context(bpy.ops.preferences.addon_install, filepath=installer_path, overwrite=True)
             prefs.restart_required = True
             POST_INSTALL["pending"] = True
             POST_INSTALL["zip_path"] = installer_path
             bpy.app.timers.register(post_install_timer, first_interval=0.2)
-            self.report({"INFO"}, "Update instalado. Reinicia Blender.")
+            self.report({"INFO"}, f"Update instalado ({zip_info['version']}). Reinicia Blender.")
             return {"FINISHED"}
         except Exception as exc:
             prefs.last_update_error = str(exc)
+            log_exception("Fallo la actualizacion del addon", exc)
             self.report({"ERROR"}, f"Fallo la actualizacion: {exc}")
             return {"CANCELLED"}
 
@@ -1389,6 +1588,68 @@ class MANWTOOL_OT_clear_restart_flag(Operator):
         prefs = get_addon_prefs()
         if prefs:
             prefs.restart_required = False
+        return {"FINISHED"}
+
+
+class MANWTOOL_OT_activate_license(Operator):
+    bl_idname = "manwtool.activate_license"
+    bl_label = "Activar licencia"
+    bl_options = {"INTERNAL"}
+
+    def execute(self, context):
+        prefs = get_addon_prefs()
+        if not prefs:
+            self.report({"ERROR"}, "No se pudieron leer las preferencias.")
+            return {"CANCELLED"}
+
+        prefs.license_hardware_id = get_machine_fingerprint()
+        if not (prefs.license_server_url or "").strip():
+            try:
+                validate_license_key_format(prefs.license_key)
+            except Exception as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+            prefs.license_active = False
+            prefs.license_status = "Clave con formato valido. Falta configurar License Server."
+            self.report({"WARNING"}, "Clave valida, pero necesitas un servidor de licencias para activar de verdad.")
+            return {"CANCELLED"}
+
+        try:
+            result = validate_license_with_server(prefs.license_email, prefs.license_key, prefs.license_server_url)
+        except Exception as exc:
+            log_exception("No se pudo validar la licencia", exc)
+            prefs.license_active = False
+            prefs.license_status = str(exc)
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+        if result["valid"]:
+            self.report({"INFO"}, "Licencia activada correctamente.")
+            return {"FINISHED"}
+
+        self.report({"ERROR"}, result["status"])
+        return {"CANCELLED"}
+
+
+class MANWTOOL_OT_clear_license_cache(Operator):
+    bl_idname = "manwtool.clear_license_cache"
+    bl_label = "Limpiar licencia"
+    bl_options = {"INTERNAL"}
+
+    def execute(self, context):
+        prefs = get_addon_prefs()
+        try:
+            clear_license_cache()
+            load_cached_license_into_prefs()
+        except Exception as exc:
+            log_exception("No se pudo limpiar la cache de licencia", exc)
+            self.report({"ERROR"}, f"No se pudo limpiar la licencia: {exc}")
+            return {"CANCELLED"}
+
+        if prefs:
+            prefs.license_email = ""
+            prefs.license_key = ""
+        self.report({"INFO"}, "Licencia local limpiada.")
         return {"FINISHED"}
 
 
@@ -1773,14 +2034,15 @@ class MANWTOOL_OT_import_fbx_pack(Operator):
             self.report({"ERROR"}, "Selecciona una carpeta de materiales valida.")
             return {"CANCELLED"}
 
-        before_names = {obj.name for obj in bpy.data.objects}
+        before_ids = {obj.as_pointer() for obj in bpy.data.objects}
         try:
             bpy.ops.import_scene.fbx(filepath=status["fbx_path"], automatic_bone_orientation=True)
         except Exception as exc:
+            log_exception(f"No se pudo importar el FBX {status['fbx_path']}", exc)
             self.report({"ERROR"}, f"No se pudo importar el FBX: {exc}")
             return {"CANCELLED"}
 
-        imported_objects = [obj for obj in context.selected_objects if obj.name not in before_names]
+        imported_objects = [obj for obj in bpy.data.objects if obj.as_pointer() not in before_ids]
         if not imported_objects:
             imported_objects = list(context.selected_objects)
         if not imported_objects:
@@ -1835,10 +2097,17 @@ def draw_update_box_if_needed(layout):
         box.label(text=f"Nueva version: {prefs.latest_version} (tu: {current_version_str()})", icon="INFO")
         row = box.row(align=True)
         row.scale_y = 1.2
+        row.enabled = getattr(prefs, "allow_in_app_update_install", False)
         row.operator("manwtool.install_update", text="Actualizar", icon="IMPORT")
-        row.operator("manwtool.check_updates", text="Revisar", icon="VIEWZOOM")
+        action_row = box.row(align=True)
+        action_row.scale_y = 1.1
+        action_row.operator("manwtool.check_updates", text="Revisar", icon="VIEWZOOM")
         if prefs.latest_release_url:
-            row.operator("manwtool.open_release_page", text="", icon="URL")
+            action_row.operator("manwtool.open_release_page", text="Release", icon="URL")
+        if not getattr(prefs, "allow_in_app_update_install", False):
+            hint = box.box()
+            hint.enabled = False
+            hint.label(text="La instalacion directa esta desactivada para mayor seguridad.")
     else:
         box.operator("manwtool.check_updates", text="Comprobar updates", icon="VIEWZOOM")
 
@@ -2305,6 +2574,8 @@ classes = (
     MANWTOOL_OT_update_popup,
     MANWTOOL_OT_restart_required_popup,
     MANWTOOL_OT_clear_restart_flag,
+    MANWTOOL_OT_activate_license,
+    MANWTOOL_OT_clear_license_cache,
     MANWTOOL_OT_pick_export_dir,
     MANWTOOL_OT_pick_import_fbx,
     MANWTOOL_OT_pick_materials_dir,
@@ -2330,8 +2601,8 @@ def register():
     for cls in classes:
         try:
             bpy.utils.unregister_class(cls)
-        except Exception:
-            pass
+        except Exception as exc:
+            log_debug(f"No fue necesario desregistrar {cls.__name__}: {exc}")
 
     for cls in classes:
         bpy.utils.register_class(cls)
@@ -2341,14 +2612,20 @@ def register():
     bpy.types.Scene.manwtool_props = PointerProperty(type=MANWTOOL_Properties)
 
     try:
-        reload_logo()
-    except Exception:
-        pass
+        load_cached_license_into_prefs()
+    except Exception as exc:
+        log_exception("No se pudo cargar la cache de licencia", exc)
 
     try:
-        bpy.app.timers.register(startup_update_check_timer, first_interval=2.0)
-    except Exception:
-        pass
+        reload_logo()
+    except Exception as exc:
+        log_exception("No se pudo recargar el logo", exc)
+
+    try:
+        if not bpy.app.timers.is_registered(startup_update_check_timer):
+            bpy.app.timers.register(startup_update_check_timer, first_interval=2.0)
+    except Exception as exc:
+        log_exception("No se pudo registrar el timer de update", exc)
 
 
 def unregister():
@@ -2358,8 +2635,8 @@ def unregister():
     for cls in reversed(classes):
         try:
             bpy.utils.unregister_class(cls)
-        except Exception:
-            pass
+        except Exception as exc:
+            log_debug(f"No se pudo desregistrar {cls.__name__}: {exc}")
 
     clear_preview_collection()
 
