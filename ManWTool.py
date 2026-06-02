@@ -20,6 +20,11 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, Po
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
+try:
+    from manwtool_protected import match_texture_files as protected_match_texture_files
+except Exception:
+    protected_match_texture_files = None
+
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
@@ -1072,6 +1077,12 @@ def find_matching_textures(material_name: str, obj_name: str, materials_dir: str
         for name in os.listdir(materials_dir)
         if os.path.isfile(os.path.join(materials_dir, name))
     ]
+
+    if protected_match_texture_files is not None:
+        try:
+            return protected_match_texture_files(files, tuple(normalized_targets), TEXTURE_RULES)
+        except Exception as exc:
+            log_debug(f"Fallo el modulo protegido, usando fallback Python: {exc}")
 
     matched = {}
     for path in files:

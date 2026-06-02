@@ -13,6 +13,8 @@ def build_zip():
 
     with zipfile.ZipFile(OUTPUT_ZIP, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(ADDON_FILE, "ManWTool.py")
+        for compiled in sorted(ROOT.glob("manwtool_protected*.pyd")) + sorted(ROOT.glob("manwtool_protected*.so")):
+            zf.write(compiled, compiled.name)
         for extra_name in ("README.md", "LICENSE", "RELEASE_CHECKLIST.md", "COMMERCIALIZATION_NOTES.md"):
             extra_path = ROOT / extra_name
             if extra_path.is_file():

@@ -3,4 +3,8 @@ __pycache__/
 *.pyo
 *.pyd
 ManWTool.zip
-
+build/
+*.c
+*.pyd
+*.so
+license_server/licenses.db

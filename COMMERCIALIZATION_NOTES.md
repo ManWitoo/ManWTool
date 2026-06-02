@@ -28,4 +28,10 @@ Respuesta esperada:
 
 ## Proteccion realista
 
-Python no evita copia por si solo. Si quieres subir la barrera de verdad, el siguiente paso es mover la logica valiosa a un modulo compilado o a un servicio externo.
+Python no evita copia por si solo. Este repo ya incluye una base para:
+
+- mover matching/logica sensible a `manwtool_protected.pyx`
+- compilarla con `setup_protected.py`
+- validar licencias con un servicio externo simple
+
+Si quieres subir aun mas la barrera, el siguiente paso es llevar mas logica de export/import al modulo compilado o al backend.

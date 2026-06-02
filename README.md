@@ -150,8 +150,9 @@ El addon ya incluye una base para activacion comercial:
 Este repositorio `E:\GitHub\ManWTool` es el repositorio de release.
 
 1. Ejecuta `py build_addon.py`
-2. Sube `ManWTool.zip` a GitHub Releases
-3. Sigue la checklist de `RELEASE_CHECKLIST.md`
+2. Si quieres usar el modulo protegido, ejecuta `build_protected.bat`
+3. Sube `ManWTool.zip` a GitHub Releases
+4. Sigue la checklist de `RELEASE_CHECKLIST.md`
 
 ## Roadmap corto
 
@@ -159,3 +160,11 @@ Este repositorio `E:\GitHub\ManWTool` es el repositorio de release.
 - compilar parte sensible del addon
 - ampliar el validator con reglas opcionales
 - mejorar import y materiales para casos de produccion
+
+## Servidor de licencias
+
+Tienes una version minima en:
+
+- [LICENSE_SERVER_README.md](LICENSE_SERVER_README.md)
+- [license_server/app.py](license_server/app.py)
+- [license_server/seed_demo_data.py](license_server/seed_demo_data.py)
