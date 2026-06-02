@@ -1,4 +1,4 @@
-# ManWTool v1.0.5
+# ManWTool v1.0.6
 
 ## Mejoras principales
 

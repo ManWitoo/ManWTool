@@ -14,7 +14,7 @@ Servidor por defecto: `http://127.0.0.1:8787/validate`
 ```json
 {
   "addon_id": "ManWTool",
-  "addon_version": "1.0.5",
+  "addon_version": "1.0.6",
   "email": "cliente@correo.com",
   "license_key": "MANW-XXXX-XXXX",
   "machine_id": "ABCDEF1234567890"

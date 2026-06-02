@@ -143,7 +143,7 @@ El addon ya incluye una base para activacion comercial:
 
 ## Version actual
 
-`v1.0.5`
+`v1.0.6`
 
 ## Preparar releases
 
