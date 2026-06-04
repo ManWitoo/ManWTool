@@ -28,7 +28,7 @@ except Exception:
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (1, 0, 6),
+    "version": (1, 0, 7),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
@@ -224,6 +224,19 @@ def apply_license_state_to_prefs(data):
     prefs.license_valid_until = data.get("valid_until", "")
     prefs.license_last_check = data.get("last_check", "")
     prefs.license_hardware_id = data.get("hardware_id", get_machine_fingerprint())
+
+
+def is_license_active():
+    prefs = get_addon_prefs()
+    return bool(getattr(prefs, "license_active", False)) if prefs else False
+
+
+def ensure_license_active(report_fn=None, message="Licencia requerida para usar esta funcion."):
+    if is_license_active():
+        return True
+    if report_fn:
+        report_fn({"ERROR"}, message)
+    return False
 
 
 def validate_license_key_format(license_key: str):
@@ -1678,6 +1691,8 @@ class MANWTOOL_OT_pick_export_dir(Operator):
         return {"RUNNING_MODAL"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         chosen_dir = bpy.path.abspath((self.directory or "").strip())
         if not chosen_dir:
@@ -1702,6 +1717,8 @@ class MANWTOOL_OT_pick_import_fbx(Operator, ImportHelper):
     filter_glob: StringProperty(default="*.fbx", options={"HIDDEN"})
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         context.scene.manwtool_props.import_fbx_path = self.filepath
         self.report({"INFO"}, f"FBX seleccionado: {os.path.basename(self.filepath)}")
         return {"FINISHED"}
@@ -1721,6 +1738,8 @@ class MANWTOOL_OT_pick_materials_dir(Operator):
         return {"RUNNING_MODAL"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         chosen_dir = bpy.path.abspath((self.directory or "").strip())
         context.scene.manwtool_props.import_materials_dir = chosen_dir
         self.report({"INFO"}, f"Carpeta de materiales: {chosen_dir}")
@@ -1733,6 +1752,8 @@ class MANWTOOL_OT_create_folders(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         base = (props.root_name or "").strip()
         if not base:
@@ -1749,6 +1770,8 @@ class MANWTOOL_OT_move_selected_to_collection(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         selected_meshes = get_mesh_objects_from_selection(context)
         if not selected_meshes:
@@ -1766,6 +1789,8 @@ class MANWTOOL_OT_auto_organize_collections(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         selected_meshes = get_mesh_objects_from_selection(context)
         if not selected_meshes:
@@ -1803,6 +1828,8 @@ class MANWTOOL_OT_rename_geo_data_material(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         obj = context.active_object
         if obj is None or obj.type != "MESH":
             self.report({"ERROR"}, "Necesitas un objeto MESH activo.")
@@ -1841,6 +1868,8 @@ class MANWTOOL_OT_export_fbx(Operator, ExportHelper):
     filter_glob: StringProperty(default="*.fbx", options={"HIDDEN"})
 
     def invoke(self, context, event):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         obj = context.active_object
         default_name = f"{clean_export_name(obj.name)}.fbx" if obj else "Export.fbx"
@@ -1850,6 +1879,8 @@ class MANWTOOL_OT_export_fbx(Operator, ExportHelper):
         return {"RUNNING_MODAL"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         chosen_dir = os.path.dirname(self.filepath) if self.filepath else ""
         if not chosen_dir:
             self.report({"ERROR"}, "Ruta de exportacion no valida.")
@@ -1870,6 +1901,8 @@ class MANWTOOL_OT_reexport_fbx(Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         base_dir = get_current_export_dir(props)
         if not base_dir:
@@ -1888,6 +1921,8 @@ class MANWTOOL_OT_select_all_meshes(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         bpy.ops.object.select_all(action="DESELECT")
         meshes = get_visible_mesh_objects(context)
         for obj in meshes:
@@ -1904,6 +1939,8 @@ class MANWTOOL_OT_select_meshes_by_name(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         search = (props.mesh_name_filter or "").strip().lower()
         if not search:
@@ -1929,6 +1966,8 @@ class MANWTOOL_OT_select_all_empties(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         bpy.ops.object.select_all(action="DESELECT")
         empties = get_visible_empty_objects(context)
         for obj in empties:
@@ -1945,6 +1984,8 @@ class MANWTOOL_OT_apply_selected_transforms(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         selected_meshes = get_mesh_objects_from_selection(context)
         selected_empties = get_empty_objects_from_selection(context)
         selected_objects = selected_meshes + selected_empties
@@ -1982,6 +2023,8 @@ class MANWTOOL_OT_export_multiple_fbx(Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         base_dir = get_current_export_dir(props)
         if not base_dir:
@@ -2035,6 +2078,8 @@ class MANWTOOL_OT_import_fbx_pack(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
         props = context.scene.manwtool_props
         status = get_import_requirements_status(props)
 
@@ -2174,16 +2219,27 @@ def draw_status_lines(layout, lines):
         info.label(text=line)
 
 
+def draw_license_required_notice(layout):
+    box = layout.box()
+    box.alert = True
+    box.label(text="Licencia requerida", icon="LOCKED")
+    box.label(text="Sin licencia activa solo puedes usar la pestana Resumen.")
+    box.label(text="Activa tu licencia en las preferencias del addon.")
+
+
 def draw_section_tabs(layout, props):
     split = layout.split(factor=0.16, align=True)
     nav = split.column(align=True)
     nav.scale_y = 1.3
     nav.prop_enum(props, "ui_section", "SUMMARY", text="", icon="HOME")
-    nav.prop_enum(props, "ui_section", "FOLDERS", text="", icon="FILE_FOLDER")
-    nav.prop_enum(props, "ui_section", "RENAME", text="", icon="FILE_TEXT")
-    nav.prop_enum(props, "ui_section", "TRANSFORM", text="", icon="OBJECT_ORIGIN")
-    nav.prop_enum(props, "ui_section", "EXPORT", text="", icon="EXPORT")
-    nav.prop_enum(props, "ui_section", "IMPORT", text="", icon="IMPORT")
+    licensed = is_license_active()
+    locked_nav = nav.column(align=True)
+    locked_nav.enabled = licensed
+    locked_nav.prop_enum(props, "ui_section", "FOLDERS", text="", icon="FILE_FOLDER")
+    locked_nav.prop_enum(props, "ui_section", "RENAME", text="", icon="FILE_TEXT")
+    locked_nav.prop_enum(props, "ui_section", "TRANSFORM", text="", icon="OBJECT_ORIGIN")
+    locked_nav.prop_enum(props, "ui_section", "EXPORT", text="", icon="EXPORT")
+    locked_nav.prop_enum(props, "ui_section", "IMPORT", text="", icon="IMPORT")
     return split.column(align=True)
 
 
@@ -2246,6 +2302,8 @@ def draw_summary_actions(layout, context, props):
 
     box = layout.box()
     box.label(text="Acciones rapidas", icon="TOOL_SETTINGS")
+    if not is_license_active():
+        box.enabled = False
 
     rename = box.box()
     rename.label(text="Naming", icon="FILE_TEXT")
@@ -2338,6 +2396,9 @@ def draw_single_object_transform(layout, obj):
 
 
 def draw_section_folders(layout, context, props):
+    if not is_license_active():
+        draw_license_required_notice(layout)
+        return
     status = get_collection_requirements_status(context, props)
     box = layout.box()
     box.label(text="Estructura de colecciones", icon="OUTLINER_COLLECTION")
@@ -2373,6 +2434,9 @@ def draw_section_folders(layout, context, props):
 
 
 def draw_section_rename(layout, context, props):
+    if not is_license_active():
+        draw_license_required_notice(layout)
+        return
     box = layout.box()
     box.label(text="Naming consistente", icon="FILE_TEXT")
     col = box.column(align=True)
@@ -2398,6 +2462,9 @@ def draw_section_rename(layout, context, props):
 
 
 def draw_section_export(layout, context, props):
+    if not is_license_active():
+        draw_license_required_notice(layout)
+        return
     status = get_export_requirements_status(context, props)
     active_name = context.active_object.name if context.active_object else "Ninguno"
 
@@ -2464,6 +2531,9 @@ def draw_section_export(layout, context, props):
 
 
 def draw_section_transform(layout, context, props):
+    if not is_license_active():
+        draw_license_required_notice(layout)
+        return
     selected_objects = context.selected_objects
     selected_meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
     selected_empties = [obj for obj in context.selected_objects if obj.type == "EMPTY"]
@@ -2499,6 +2569,9 @@ def draw_section_transform(layout, context, props):
 
 
 def draw_section_import(layout, context, props):
+    if not is_license_active():
+        draw_license_required_notice(layout)
+        return
     status = get_import_requirements_status(props)
     box = layout.box()
     box.label(text="Importacion automatica", icon="IMPORT")
@@ -2554,6 +2627,8 @@ class MANWTOOL_PT_main(Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.manwtool_props
+        if not is_license_active() and props.ui_section != "SUMMARY":
+            props.ui_section = "SUMMARY"
 
         draw_header(self, context, show_status=True)
         draw_update_box_if_needed(layout)
@@ -2561,6 +2636,8 @@ class MANWTOOL_PT_main(Panel):
 
         content = draw_section_tabs(layout, props)
         if props.ui_section == "SUMMARY":
+            if not is_license_active():
+                draw_license_required_notice(content)
             draw_section_summary(content, context, props)
         elif props.ui_section == "FOLDERS":
             draw_section_folders(content, context, props)
