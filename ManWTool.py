@@ -19,6 +19,7 @@ import bpy.utils.previews
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup
 from bpy_extras.io_utils import ExportHelper, ImportHelper
+from manwtool_i18n import LANGUAGE_ITEMS, tr, yes_no
 
 try:
     from manwtool_protected import match_texture_files as protected_match_texture_files
@@ -28,7 +29,7 @@ except Exception:
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (1, 0, 7),
+    "version": (1, 0, 8),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
@@ -123,6 +124,52 @@ EXPORT_PRESETS = {
 }
 
 
+def get_collection_target_label(target):
+    mapping = {
+        "HIGH": tr("collection.high"),
+        "LOW": tr("collection.low"),
+        "REFERENCE": tr("collection.reference"),
+    }
+    return mapping.get(target, target)
+
+
+def get_collection_target_items(_self=None, _context=None):
+    return [
+        ("HIGH", tr("collection.high"), tr("collection.desc.high")),
+        ("LOW", tr("collection.low"), tr("collection.desc.low")),
+        ("REFERENCE", tr("collection.reference"), tr("collection.desc.reference")),
+    ]
+
+
+def get_export_preset_items(_self=None, _context=None):
+    return [
+        ("UNREAL", "Unreal", tr("preset.unreal.desc")),
+        ("UNITY", "Unity", tr("preset.unity.desc")),
+        ("HIGHPOLY", "Highpoly Bake", tr("preset.highpoly.desc")),
+        ("LOWPOLY", "Lowpoly Game", tr("preset.lowpoly.desc")),
+        ("CUSTOM", "Custom", tr("preset.custom.desc")),
+    ]
+
+
+def get_ui_section_items(_self=None, _context=None):
+    return [
+        ("SUMMARY", tr("ui.section.summary"), ""),
+        ("FOLDERS", tr("ui.section.folders"), ""),
+        ("RENAME", tr("ui.section.rename"), ""),
+        ("TRANSFORM", tr("ui.section.transform"), ""),
+        ("EXPORT", tr("ui.section.export"), ""),
+        ("IMPORT", tr("ui.section.import"), ""),
+    ]
+
+
+def get_rename_affix_mode_items(_self=None, _context=None):
+    return [
+        ("PREFIX", tr("ui.naming.mode.prefix"), ""),
+        ("SUFFIX", tr("ui.naming.mode.suffix"), ""),
+        ("BOTH", tr("ui.naming.mode.both"), ""),
+    ]
+
+
 def current_version_str():
     return ".".join(map(str, bl_info.get("version", (0, 0, 0))))
 
@@ -141,6 +188,19 @@ def normalize_name(text: str):
 
 def clean_export_name(name: str):
     return re.sub(r"\.\d{3}$", "", name or "")
+
+
+def build_rename_name(props):
+    mode = (getattr(props, "rename_affix_mode", "PREFIX") or "PREFIX").upper()
+    prefix = (getattr(props, "rename_prefix", "") or "").strip()
+    base = (getattr(props, "rename_base", "") or "").strip()
+    suffix = (getattr(props, "rename_suffix", "") or "").strip()
+
+    if mode == "SUFFIX":
+        return f"{base}{suffix}"
+    if mode == "BOTH":
+        return f"{prefix}{base}{suffix}"
+    return f"{prefix}{base}"
 
 
 def get_addon_prefs():
@@ -716,8 +776,8 @@ def format_export_settings_lines(settings):
     return [
         f"Preset: {settings['label']}",
         f"Axis: {settings['axis_forward']} / {settings['axis_up']}",
-        f"Apply unit scale: {'Si' if settings['apply_unit_scale'] else 'No'}",
-        f"Usar modificadores: {'Si' if settings['use_mesh_modifiers'] else 'No'}",
+        tr("ui.export.apply_unit_scale", value=yes_no(settings["apply_unit_scale"])),
+        tr("ui.export.use_mesh_modifiers", value=yes_no(settings["use_mesh_modifiers"])),
     ]
 
 
@@ -1260,14 +1320,17 @@ def prepare_imported_objects(context, objects, apply_scale=True, reset_rotation=
 def active_obj_status(context):
     obj = context.active_object
     if obj is None:
-        return ("Sin objeto activo", "ERROR", "ERROR")
+        return (tr("ui.summary_status.none"), "ERROR", "ERROR")
     if obj.type != "MESH":
-        return (f"Activo: {obj.name} ({obj.type})", "WARNING", "ERROR")
-    return (f"Activo: {obj.name} (MESH)", "INFO", "MESH_CUBE")
+        if obj.type == "EMPTY":
+            return (tr("ui.summary_status.empty", name=obj.name), "WARNING", "ERROR")
+        return (tr("ui.summary_status.other", name=obj.name), "WARNING", "ERROR")
+    return (tr("ui.summary_status.mesh", name=obj.name), "INFO", "MESH_CUBE")
 
 class MANWTOOL_Preferences(AddonPreferences):
     bl_idname = "ManWTool"
 
+    ui_language: EnumProperty(name="Language", items=LANGUAGE_ITEMS, default="AUTO")
     logo_path: StringProperty(name="Logo (PNG)", subtype="FILE_PATH", default="")
     repo_owner: StringProperty(name="GitHub Owner", default=DEFAULT_REPO_OWNER)
     repo_name: StringProperty(name="GitHub Repo", default=DEFAULT_REPO_NAME)
@@ -1289,7 +1352,7 @@ class MANWTOOL_Preferences(AddonPreferences):
     license_email: StringProperty(name="Email licencia", default="")
     license_key: StringProperty(name="Clave licencia", default="")
     license_active: BoolProperty(default=False)
-    license_status: StringProperty(default="Sin activar")
+    license_status: StringProperty(default=tr("state.license.inactive"))
     license_valid_until: StringProperty(default="")
     license_last_check: StringProperty(default="")
     license_hardware_id: StringProperty(default="")
@@ -1298,41 +1361,42 @@ class MANWTOOL_Preferences(AddonPreferences):
         layout = self.layout
 
         logo = layout.box()
-        logo.label(text="Apariencia", icon="IMAGE_DATA")
-        logo.prop(self, "logo_path")
+        logo.label(text=tr("prefs.appearance"), icon="IMAGE_DATA")
+        logo.prop(self, "ui_language", text=tr("addon.language"))
+        logo.prop(self, "logo_path", text=tr("prefs.label.logo_path"))
 
         box = layout.box()
-        box.label(text="Auto-update (GitHub)", icon="FILE_REFRESH")
+        box.label(text=tr("prefs.auto_update"), icon="FILE_REFRESH")
         col = box.column(align=True)
-        col.prop(self, "repo_owner")
-        col.prop(self, "repo_name")
-        col.prop(self, "asset_name_contains")
+        col.prop(self, "repo_owner", text=tr("prefs.label.repo_owner"))
+        col.prop(self, "repo_name", text=tr("prefs.label.repo_name"))
+        col.prop(self, "asset_name_contains", text=tr("prefs.label.asset_name_contains"))
 
         row = box.row(align=True)
-        row.prop(self, "auto_check_updates")
-        row.prop(self, "check_interval_days")
-        box.prop(self, "allow_in_app_update_install")
+        row.prop(self, "auto_check_updates", text=tr("prefs.label.auto_check_updates"))
+        row.prop(self, "check_interval_days", text=tr("prefs.label.check_interval_days"))
+        box.prop(self, "allow_in_app_update_install", text=tr("prefs.label.allow_in_app_update_install"))
         warn = box.box()
         warn.enabled = False
-        warn.label(text="Recomendado para venta: comprobar updates y distribuir el ZIP manualmente.")
-        box.operator("manwtool.check_updates", text="Comprobar ahora", icon="VIEWZOOM")
+        warn.label(text=tr("prefs.update_sales_hint"))
+        box.operator("manwtool.check_updates", text=tr("prefs.check_now"), icon="VIEWZOOM")
 
         if self.update_available:
             update_box = box.box()
             update_box.alert = True
-            update_box.label(text=f"Update disponible: {self.latest_version} (tu: {current_version_str()})", icon="INFO")
+            update_box.label(text=tr("prefs.update_available", latest=self.latest_version, current=current_version_str()), icon="INFO")
             row = update_box.row(align=True)
             row.enabled = self.allow_in_app_update_install
-            row.operator("manwtool.install_update", text="Actualizar", icon="IMPORT")
+            row.operator("manwtool.install_update", text=tr("ui.update"), icon="IMPORT")
             if self.latest_release_url:
                 release_row = update_box.row(align=True)
-                release_row.operator("manwtool.open_release_page", text="Ver release", icon="URL")
+                release_row.operator("manwtool.open_release_page", text=tr("ui.release"), icon="URL")
 
         if self.restart_required:
             restart_box = box.box()
             restart_box.alert = True
-            restart_box.label(text="Update instalado. Reinicia Blender.", icon="ERROR")
-            restart_box.operator("manwtool.clear_restart_flag", text="Ocultar aviso", icon="CHECKMARK")
+            restart_box.label(text=tr("prefs.update_installed_restart"), icon="ERROR")
+            restart_box.operator("manwtool.clear_restart_flag", text=tr("prefs.hide_notice"), icon="CHECKMARK")
 
         if self.last_update_error:
             err = box.box()
@@ -1340,68 +1404,53 @@ class MANWTOOL_Preferences(AddonPreferences):
             err.label(text=f"Error: {self.last_update_error}", icon="ERROR")
 
         debug = layout.box()
-        debug.label(text="Diagnostico", icon="CONSOLE")
-        debug.prop(self, "debug_logging")
+        debug.label(text=tr("prefs.debug"), icon="CONSOLE")
+        debug.prop(self, "debug_logging", text=tr("prefs.label.debug_logging"))
 
         license_box = layout.box()
-        license_box.label(text="Licencia", icon="KEYINGSET")
-        license_box.prop(self, "license_server_url")
-        license_box.prop(self, "license_email")
-        license_box.prop(self, "license_key")
+        license_box.label(text=tr("prefs.license"), icon="KEYINGSET")
+        license_box.prop(self, "license_server_url", text=tr("prefs.label.license_server_url"))
+        license_box.prop(self, "license_email", text=tr("prefs.label.license_email"))
+        license_box.prop(self, "license_key", text=tr("prefs.label.license_key"))
         row = license_box.row(align=True)
-        row.operator("manwtool.activate_license", text="Activar licencia", icon="CHECKMARK")
-        row.operator("manwtool.clear_license_cache", text="Limpiar licencia", icon="TRASH")
+        row.operator("manwtool.activate_license", text=tr("prefs.activate_license"), icon="CHECKMARK")
+        row.operator("manwtool.clear_license_cache", text=tr("prefs.clear_license"), icon="TRASH")
 
         status = license_box.box()
         status.enabled = False
-        status.label(text=f"Estado: {self.license_status}")
+        status.label(text=tr("prefs.status", status=self.license_status))
         if self.license_valid_until:
-            status.label(text=f"Valida hasta: {self.license_valid_until}")
+            status.label(text=tr("prefs.valid_until", value=self.license_valid_until))
         if self.license_last_check:
-            status.label(text=f"Ultima comprobacion: {self.license_last_check}")
+            status.label(text=tr("prefs.last_check", value=self.license_last_check))
         if self.license_hardware_id:
-            status.label(text=f"Hardware ID: {self.license_hardware_id}")
+            status.label(text=tr("prefs.hardware_id", value=self.license_hardware_id))
 
 
 class MANWTOOL_Properties(PropertyGroup):
     ui_section: EnumProperty(
         name="Seccion",
-        items=[
-            ("SUMMARY", "Resumen", ""),
-            ("FOLDERS", "Colecciones", ""),
-            ("RENAME", "Renombrar", ""),
-            ("TRANSFORM", "Transform", ""),
-            ("EXPORT", "Exportar", ""),
-            ("IMPORT", "Importar", ""),
-        ],
+        items=get_ui_section_items,
         default="SUMMARY",
     )
 
     root_name: StringProperty(name="Raiz", default="Asset")
     collection_target: EnumProperty(
         name="Destino",
-        items=[
-            ("HIGH", "High", "Mover a la coleccion High"),
-            ("LOW", "Low", "Mover a la coleccion Low"),
-            ("REFERENCE", "Reference", "Mover a la coleccion Reference"),
-        ],
+        items=get_collection_target_items,
         default="HIGH",
     )
     collection_auto_detect: BoolProperty(name="Auto detectar por nombre", default=True)
+    rename_affix_mode: EnumProperty(name="Modo", items=get_rename_affix_mode_items, default="PREFIX")
     rename_prefix: StringProperty(name="Prefijo", default="SM_")
     rename_base: StringProperty(name="Nombre", default="Object")
+    rename_suffix: StringProperty(name="Sufijo", default="")
     mesh_name_filter: StringProperty(name="Buscar geometria", default="")
     export_dir: StringProperty(name="Carpeta exportacion", subtype="DIR_PATH", default="")
     last_export_dir: StringProperty(name="Ultima carpeta", subtype="DIR_PATH", default="")
     export_preset: EnumProperty(
         name="Preset",
-        items=[
-            ("UNREAL", "Unreal", "Preset de export pensado para Unreal"),
-            ("UNITY", "Unity", "Preset de export pensado para Unity"),
-            ("HIGHPOLY", "Highpoly Bake", "Usa modificadores para sacar un highpoly limpio"),
-            ("LOWPOLY", "Lowpoly Game", "Export de lowpoly para juego"),
-            ("CUSTOM", "Custom", "Configuracion manual"),
-        ],
+        items=get_export_preset_items,
         default="UNREAL",
     )
     export_axis_forward: EnumProperty(
@@ -1836,7 +1885,7 @@ class MANWTOOL_OT_rename_geo_data_material(Operator):
             return {"CANCELLED"}
 
         props = context.scene.manwtool_props
-        final_name = f"{(props.rename_prefix or '').strip()}{(props.rename_base or '').strip()}"
+        final_name = build_rename_name(props)
         if not final_name.strip():
             self.report({"ERROR"}, "Escribe un nombre.")
             return {"CANCELLED"}
@@ -2219,6 +2268,16 @@ def draw_status_lines(layout, lines):
         info.label(text=line)
 
 
+def draw_rename_fields(layout, props):
+    layout.prop(props, "rename_affix_mode", text=tr("ui.naming.affix_mode"))
+    mode = (props.rename_affix_mode or "PREFIX").upper()
+    if mode in {"PREFIX", "BOTH"}:
+        layout.prop(props, "rename_prefix", text=tr("ui.naming.prefix"))
+    if mode in {"SUFFIX", "BOTH"}:
+        layout.prop(props, "rename_suffix", text=tr("ui.naming.suffix"))
+    layout.prop(props, "rename_base", text=tr("ui.naming.name"))
+
+
 def draw_license_required_notice(layout):
     box = layout.box()
     box.alert = True
@@ -2306,12 +2365,11 @@ def draw_summary_actions(layout, context, props):
         box.enabled = False
 
     rename = box.box()
-    rename.label(text="Naming", icon="FILE_TEXT")
-    rename.prop(props, "rename_prefix")
-    rename.prop(props, "rename_base")
+    rename.label(text=tr("ui.naming"), icon="FILE_TEXT")
+    draw_rename_fields(rename, props)
     btn = big_button(rename)
     btn.enabled = bool(active and active.type == "MESH")
-    btn.operator("manwtool.rename_geo_data_material", text="Aplicar nombre", icon="FILE_TICK")
+    btn.operator("manwtool.rename_geo_data_material", text=tr("ui.apply_name"), icon="FILE_TICK")
 
     collections = box.box()
     collections.label(text="Colecciones", icon="OUTLINER_COLLECTION")
@@ -2438,27 +2496,26 @@ def draw_section_rename(layout, context, props):
         draw_license_required_notice(layout)
         return
     box = layout.box()
-    box.label(text="Naming consistente", icon="FILE_TEXT")
+    box.label(text=tr("ui.naming.consistent"), icon="FILE_TEXT")
     col = box.column(align=True)
-    col.prop(props, "rename_prefix")
-    col.prop(props, "rename_base")
+    draw_rename_fields(col, props)
 
-    final_name = f"{(props.rename_prefix or '').strip()}{(props.rename_base or '').strip()}"
+    final_name = build_rename_name(props)
     preview = box.box()
     preview.enabled = False
-    preview.label(text=f"Resultado: {final_name}", icon="CHECKMARK")
+    preview.label(text=tr("ui.naming.result", name=final_name), icon="CHECKMARK")
 
     obj = context.active_object
     hint = box.box()
     hint.enabled = False
     if obj and obj.type == "MESH":
-        hint.label(text=f"Se aplicara a: {obj.name}")
+        hint.label(text=tr("ui.naming.apply_to", name=obj.name))
     else:
-        hint.label(text="Necesitas un objeto MESH activo.")
+        hint.label(text=tr("ui.naming.need_active_mesh"))
 
     btn = big_button(box)
     btn.enabled = bool(obj and obj.type == "MESH")
-    btn.operator("manwtool.rename_geo_data_material", icon="FILE_TICK")
+    btn.operator("manwtool.rename_geo_data_material", text=tr("ui.apply_name"), icon="FILE_TICK")
 
 
 def draw_section_export(layout, context, props):
