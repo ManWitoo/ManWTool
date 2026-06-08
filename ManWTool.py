@@ -29,7 +29,7 @@ except Exception:
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (1, 0, 8),
+    "version": (1, 0, 9),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
@@ -168,6 +168,39 @@ def get_rename_affix_mode_items(_self=None, _context=None):
         ("SUFFIX", tr("ui.naming.mode.suffix"), ""),
         ("BOTH", tr("ui.naming.mode.both"), ""),
     ]
+
+
+UI_SECTION_ITEMS = [
+    ("SUMMARY", "Summary", ""),
+    ("FOLDERS", "Collections", ""),
+    ("RENAME", "Rename", ""),
+    ("TRANSFORM", "Transform", ""),
+    ("EXPORT", "Export", ""),
+    ("IMPORT", "Import", ""),
+]
+
+
+COLLECTION_TARGET_ITEMS = [
+    ("HIGH", "High", "Move to the High collection"),
+    ("LOW", "Low", "Move to the Low collection"),
+    ("REFERENCE", "Reference", "Move to the Reference collection"),
+]
+
+
+RENAME_AFFIX_MODE_ITEMS = [
+    ("PREFIX", "Prefix", ""),
+    ("SUFFIX", "Suffix", ""),
+    ("BOTH", "Both", ""),
+]
+
+
+EXPORT_PRESET_ITEMS = [
+    ("UNREAL", "Unreal", "Export preset designed for Unreal"),
+    ("UNITY", "Unity", "Export preset designed for Unity"),
+    ("HIGHPOLY", "Highpoly Bake", "Uses modifiers to export a clean highpoly"),
+    ("LOWPOLY", "Lowpoly Game", "Lowpoly export for games"),
+    ("CUSTOM", "Custom", "Manual configuration"),
+]
 
 
 def current_version_str():
@@ -1430,18 +1463,18 @@ class MANWTOOL_Preferences(AddonPreferences):
 class MANWTOOL_Properties(PropertyGroup):
     ui_section: EnumProperty(
         name="Seccion",
-        items=get_ui_section_items,
+        items=UI_SECTION_ITEMS,
         default="SUMMARY",
     )
 
     root_name: StringProperty(name="Raiz", default="Asset")
     collection_target: EnumProperty(
         name="Destino",
-        items=get_collection_target_items,
+        items=COLLECTION_TARGET_ITEMS,
         default="HIGH",
     )
     collection_auto_detect: BoolProperty(name="Auto detectar por nombre", default=True)
-    rename_affix_mode: EnumProperty(name="Modo", items=get_rename_affix_mode_items, default="PREFIX")
+    rename_affix_mode: EnumProperty(name="Modo", items=RENAME_AFFIX_MODE_ITEMS, default="PREFIX")
     rename_prefix: StringProperty(name="Prefijo", default="SM_")
     rename_base: StringProperty(name="Nombre", default="Object")
     rename_suffix: StringProperty(name="Sufijo", default="")
@@ -1450,7 +1483,7 @@ class MANWTOOL_Properties(PropertyGroup):
     last_export_dir: StringProperty(name="Ultima carpeta", subtype="DIR_PATH", default="")
     export_preset: EnumProperty(
         name="Preset",
-        items=get_export_preset_items,
+        items=EXPORT_PRESET_ITEMS,
         default="UNREAL",
     )
     export_axis_forward: EnumProperty(
