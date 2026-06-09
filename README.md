@@ -110,8 +110,17 @@ Esto permite revisar rapidamente si el asset esta limpio antes de seguir con Sub
 El addon puede:
 
 - comprobar si existe una release nueva
-- descargar el `.zip` publicado
-- instalar la actualizacion desde Blender
+- abrir la release publicada
+- instalar la actualizacion desde Blender solo si activas la opcion de instalacion directa
+
+### 8. Licencias
+
+El addon ya incluye una base para activacion comercial:
+
+- email y clave de licencia
+- `hardware id` local
+- cache local de licencia
+- validacion contra un `license server` configurable
 
 ## Instalacion
 
@@ -134,11 +143,28 @@ El addon puede:
 
 ## Version actual
 
-`v1.0.5`
+`v1.0.7`
+
+## Preparar releases
+
+Este repositorio `E:\GitHub\ManWTool` es el repositorio de release.
+
+1. Ejecuta `py build_addon.py`
+2. Si quieres usar el modulo protegido, ejecuta `build_protected.bat`
+3. Sube `ManWTool.zip` a GitHub Releases
+4. Sigue la checklist de `RELEASE_CHECKLIST.md`
 
 ## Roadmap corto
 
-- unificar definitivamente la arquitectura del addon
-- mejorar el sistema de updater
+- backend real de licencias
+- compilar parte sensible del addon
 - ampliar el validator con reglas opcionales
 - mejorar import y materiales para casos de produccion
+
+## Servidor de licencias
+
+Tienes una version minima en:
+
+- [LICENSE_SERVER_README.md](LICENSE_SERVER_README.md)
+- [license_server/app.py](license_server/app.py)
+- [license_server/seed_demo_data.py](license_server/seed_demo_data.py)

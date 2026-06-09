@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+ManWTool.zip
+build/
+*.c
+*.pyd
+*.so
+license_server/licenses.db
