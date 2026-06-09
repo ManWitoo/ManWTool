@@ -15,9 +15,10 @@ import zipfile
 
 import bpy
 import bpy.utils.previews
+import bmesh
 
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
-from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup
+from bpy.types import AddonPreferences, Menu, Operator, Panel, PropertyGroup
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from manwtool_i18n import LANGUAGE_ITEMS, tr, yes_no
 
@@ -29,7 +30,7 @@ except Exception:
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (1, 0, 10),
+    "version": (1, 0, 11),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
@@ -60,6 +61,13 @@ UPDATER_STATE = {
 POST_INSTALL = {
     "pending": False,
     "zip_path": "",
+}
+
+TRANSFORM_WARNING_STATE = {
+    "affected_count": 0,
+    "affected_names": [],
+    "negative_scale_count": 0,
+    "inverted_normals_count": 0,
 }
 
 TEXTURE_RULES = {
@@ -989,6 +997,47 @@ def count_multi_user_meshes(objects):
     return count
 
 
+def has_negative_scale(obj):
+    return any(value < 0.0 for value in getattr(obj, "scale", (0.0, 0.0, 0.0)))
+
+
+def get_negative_scale_mesh_objects(objects):
+    return [obj for obj in objects if obj and obj.type == "MESH" and has_negative_scale(obj)]
+
+
+def is_closed_manifold_mesh(obj):
+    if obj is None or obj.type != "MESH" or obj.data is None:
+        return False
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        if not bm.faces:
+            return False
+        return all(edge.is_manifold for edge in bm.edges)
+    finally:
+        bm.free()
+
+
+def has_inverted_normals_closed_mesh(obj):
+    if not is_closed_manifold_mesh(obj):
+        return False
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        if not bm.faces:
+            return False
+        volume = bm.calc_volume(signed=True)
+        return volume < 0.0
+    except Exception:
+        return False
+    finally:
+        bm.free()
+
+
+def get_inverted_normals_mesh_objects(objects):
+    return [obj for obj in objects if obj and obj.type == "MESH" and has_inverted_normals_closed_mesh(obj)]
+
+
 def apply_transformations_to_objects(
     context,
     objects,
@@ -1053,6 +1102,95 @@ def apply_transformations_to_objects(
         "single_user_made": single_user_made,
         "failed": failed,
     }
+
+
+def recalculate_normals_for_objects(context, objects):
+    mesh_objects = [obj for obj in objects if obj and obj.name in bpy.data.objects and obj.type == "MESH"]
+    if not mesh_objects:
+        return {"processed": 0, "failed": 0}
+
+    ensure_object_mode()
+    view_layer = context.view_layer
+    prev_active = view_layer.objects.active
+    prev_selected = list(context.selected_objects)
+    processed = 0
+    failed = 0
+
+    try:
+        for obj in mesh_objects:
+            try:
+                bpy.ops.object.select_all(action="DESELECT")
+                obj.select_set(True)
+                view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode="EDIT")
+                bpy.ops.mesh.select_all(action="SELECT")
+                bpy.ops.mesh.normals_make_consistent(inside=False)
+                bpy.ops.object.mode_set(mode="OBJECT")
+                processed += 1
+            except Exception as exc:
+                failed += 1
+                try:
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                except Exception:
+                    pass
+                log_exception(f"Fallo recalculando normales en {getattr(obj, 'name', '<desconocido>')}", exc)
+    finally:
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in prev_selected:
+            if obj.name in bpy.data.objects:
+                obj.select_set(True)
+        if prev_active and prev_active.name in bpy.data.objects:
+            view_layer.objects.active = prev_active
+
+    return {"processed": processed, "failed": failed}
+
+
+def run_apply_selected_transforms(context, report_fn, recalc_suspect_normals=False):
+    selected_meshes = get_mesh_objects_from_selection(context)
+    selected_empties = get_empty_objects_from_selection(context)
+    selected_objects = selected_meshes + selected_empties
+    if not selected_objects:
+        report_fn({"ERROR"}, "No hay objetos MESH o EMPTY seleccionados.")
+        return {"CANCELLED"}
+
+    negative_scale_meshes = get_negative_scale_mesh_objects(selected_meshes)
+    inverted_normals_meshes = get_inverted_normals_mesh_objects(selected_meshes)
+    suspect_meshes = []
+    for obj in negative_scale_meshes + inverted_normals_meshes:
+        if obj not in suspect_meshes:
+            suspect_meshes.append(obj)
+    result = apply_transformations_to_objects(
+        context,
+        selected_objects,
+        apply_location=True,
+        apply_rotation=True,
+        apply_scale=True,
+        make_single_user=True,
+    )
+
+    if result["processed"] == 0:
+        report_fn({"ERROR"}, "No se pudieron aplicar transformaciones.")
+        return {"CANCELLED"}
+
+    normals_result = {"processed": 0, "failed": 0}
+    if recalc_suspect_normals and suspect_meshes:
+        normals_result = recalculate_normals_for_objects(context, suspect_meshes)
+
+    level = {"WARNING"} if result["failed"] or normals_result["failed"] else {"INFO"}
+    message = (
+        "Transformaciones aplicadas | "
+        f"Procesados: {result['processed']} | "
+        f"Single-user: {result['single_user_made']} | "
+        f"Fallidos: {result['failed']}"
+    )
+    if recalc_suspect_normals and suspect_meshes:
+        message += (
+            " | "
+            f"Normales recalculadas: {normals_result['processed']} | "
+            f"Fallos normales: {normals_result['failed']}"
+        )
+    report_fn(level, message)
+    return {"FINISHED"}
 
 
 def apply_export_prep_to_object(context, obj):
@@ -2060,12 +2198,70 @@ class MANWTOOL_OT_select_all_empties(Operator):
         return {"FINISHED"}
 
 
+class MANWTOOL_MT_transform_warning_menu(Menu):
+    bl_idname = "MANWTOOL_MT_transform_warning_menu"
+    bl_label = "Normales sospechosas detectadas"
+
+    def draw(self, context):
+        layout = self.layout
+        negative_scale_count = int(TRANSFORM_WARNING_STATE.get("negative_scale_count", 0))
+        inverted_normals_count = int(TRANSFORM_WARNING_STATE.get("inverted_normals_count", 0))
+        affected_count = int(TRANSFORM_WARNING_STATE.get("affected_count", 0))
+        affected_names = TRANSFORM_WARNING_STATE.get("affected_names", [])
+
+        if negative_scale_count:
+            layout.label(text="Se han detectado MESH con escala negativa.", icon="ERROR")
+        if inverted_normals_count:
+            layout.label(text="Se han detectado MESH cerradas con normales invertidas.", icon="ERROR")
+        layout.label(text="Puedes recalcular las normales al aplicar transformaciones.", icon="INFO")
+        layout.label(text=f"Objetos detectados: {affected_count}")
+        if affected_names:
+            names_box = layout.box()
+            names_box.enabled = False
+            for name in affected_names:
+                if name:
+                    names_box.label(text=name)
+
+        layout.separator()
+
+        first = layout.operator(
+            "manwtool.apply_selected_transforms_confirm",
+            text="Aplicar escala y recalcular normales",
+            icon="CHECKMARK",
+        )
+        first.recalc_suspect_normals = True
+
+        second = layout.operator(
+            "manwtool.apply_selected_transforms_confirm",
+            text="Continuar sin corregir normales",
+            icon="TRIA_RIGHT",
+        )
+        second.recalc_suspect_normals = False
+
+
+class MANWTOOL_OT_apply_selected_transforms_confirm(Operator):
+    bl_idname = "manwtool.apply_selected_transforms_confirm"
+    bl_label = "Confirmar transformaciones"
+    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
+
+    recalc_suspect_normals: BoolProperty(default=False)
+
+    def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
+        return run_apply_selected_transforms(
+            context,
+            self.report,
+            recalc_suspect_normals=bool(self.recalc_suspect_normals),
+        )
+
+
 class MANWTOOL_OT_apply_selected_transforms(Operator):
     bl_idname = "manwtool.apply_selected_transforms"
     bl_label = "Aplicar transformaciones"
     bl_options = {"REGISTER", "UNDO"}
 
-    def execute(self, context):
+    def invoke(self, context, event):
         if not ensure_license_active(self.report):
             return {"CANCELLED"}
         selected_meshes = get_mesh_objects_from_selection(context)
@@ -2075,28 +2271,30 @@ class MANWTOOL_OT_apply_selected_transforms(Operator):
             self.report({"ERROR"}, "No hay objetos MESH o EMPTY seleccionados.")
             return {"CANCELLED"}
 
-        result = apply_transformations_to_objects(
-            context,
-            selected_objects,
-            apply_location=True,
-            apply_rotation=True,
-            apply_scale=True,
-            make_single_user=True,
-        )
+        negative_scale_meshes = get_negative_scale_mesh_objects(selected_meshes)
+        inverted_normals_meshes = get_inverted_normals_mesh_objects(selected_meshes)
+        suspect_meshes = []
+        for obj in negative_scale_meshes + inverted_normals_meshes:
+            if obj not in suspect_meshes:
+                suspect_meshes.append(obj)
+        if suspect_meshes:
+            TRANSFORM_WARNING_STATE["affected_count"] = len(suspect_meshes)
+            TRANSFORM_WARNING_STATE["affected_names"] = [obj.name for obj in suspect_meshes[:8]]
+            TRANSFORM_WARNING_STATE["negative_scale_count"] = len(negative_scale_meshes)
+            TRANSFORM_WARNING_STATE["inverted_normals_count"] = len(inverted_normals_meshes)
+            bpy.ops.wm.call_menu(name="MANWTOOL_MT_transform_warning_menu")
+            return {"FINISHED"}
 
-        if result["processed"] == 0:
-            self.report({"ERROR"}, "No se pudieron aplicar transformaciones.")
+        return self.execute(context)
+
+    def execute(self, context):
+        if not ensure_license_active(self.report):
             return {"CANCELLED"}
-
-        level = {"WARNING"} if result["failed"] else {"INFO"}
-        self.report(
-            level,
-            "Transformaciones aplicadas | "
-            f"Procesados: {result['processed']} | "
-            f"Single-user: {result['single_user_made']} | "
-            f"Fallidos: {result['failed']}",
+        return run_apply_selected_transforms(
+            context,
+            self.report,
+            recalc_suspect_normals=False,
         )
-        return {"FINISHED"}
 
 
 class MANWTOOL_OT_export_multiple_fbx(Operator):
@@ -2766,6 +2964,8 @@ classes = (
     MANWTOOL_OT_select_all_meshes,
     MANWTOOL_OT_select_meshes_by_name,
     MANWTOOL_OT_select_all_empties,
+    MANWTOOL_MT_transform_warning_menu,
+    MANWTOOL_OT_apply_selected_transforms_confirm,
     MANWTOOL_OT_apply_selected_transforms,
     MANWTOOL_OT_export_multiple_fbx,
     MANWTOOL_OT_import_fbx_pack,
