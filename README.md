@@ -1,21 +1,24 @@
 # ManWTool
 
-Addon para Blender orientado a acelerar tareas de pipeline de assets: organizacion de colecciones, naming consistente, exportacion FBX y validacion automatica antes de exportar.
+Addon para Blender orientado a acelerar tareas de pipeline de assets: organización de colecciones, naming consistente, exportación FBX y validación automática antes de exportar.
 
-## Que hace
+## Qué hace
 
-ManWTool centraliza varias tareas repetitivas de produccion en una sola herramienta:
+ManWTool centraliza varias tareas repetitivas de producción en una sola herramienta:
 
-- crea estructura de colecciones para assets
-- mueve y organiza seleccion automaticamente en `High`, `Low` y `Reference`
-- renombra objeto, mesh data y material con una sola accion
-- exporta FBX generando una carpeta por objeto
-- usa presets de export para `Unreal`, `Unity`, `Highpoly Bake`, `Lowpoly Game` y `Custom`
-- aplica transformaciones en lote aunque haya meshes compartidos
-- guarda la ultima carpeta para `ReExport`
-- comprueba actualizaciones desde GitHub
-- valida automaticamente el asset al exportar
-- genera un informe `.txt` con incidencias del export
+- Crea estructura de colecciones para assets
+- Mueve y organiza la selección automáticamente en `High`, `Low` y `Reference`
+- Renombra objeto, mesh data y material con una sola acción
+- Exporta FBX generando una carpeta por objeto
+- Usa presets de export para `Unreal`, `Unity`, `Highpoly Bake`, `Lowpoly Game` y `Custom`
+- Aplica transformaciones en lote aunque haya meshes compartidos
+- Avisa antes de aplicar transformaciones si detecta meshes con escala negativa
+- Detecta meshes cerradas con normales potencialmente invertidas
+- Recalcula normales automáticamente durante la aplicación de transformaciones (opcional)
+- Guarda la última carpeta para `ReExport`
+- Comprueba actualizaciones desde GitHub
+- Valida automáticamente el asset al exportar
+- Genera un informe `.txt` con incidencias del export
 
 ## Apartados del addon
 
@@ -28,38 +31,38 @@ Permite crear una estructura base para trabajar un asset:
 - `Asset_Low`
 - `Asset_Reference`
 
-Esto ayuda a mantener una organizacion estable para modelado, baking y export.
+Esto ayuda a mantener una organización estable para modelado, baking y export.
 
-Ahora tambien permite:
+También permite:
 
-- mover la seleccion a la coleccion objetivo con un click
-- autoorganizar por nombre detectando `high`, `low` o `reference`
+- Mover la selección a la colección objetivo con un click
+- Autoorganizar por nombre detectando `high`, `low` o `reference`
 
 ### 2. Renombrado
 
 Permite aplicar naming consistente al objeto activo:
 
-- cambia el nombre del objeto
-- cambia el nombre de la mesh data
-- crea o asigna un material con el mismo nombre
+- Cambia el nombre del objeto
+- Cambia el nombre de la mesh data
+- Crea o asigna un material con el mismo nombre
 
-Pensado para evitar errores de naming y acelerar la preparacion del asset.
+Pensado para evitar errores de naming y acelerar la preparación del asset.
 
 ### 3. Export
 
 El export:
 
-- trabaja sobre una copia temporal
-- bakea modificadores
-- aplica rotacion y escala
-- centra el origen
-- mueve la copia a `0,0,0`
-- crea una carpeta por objeto
-- exporta un `.fbx` dentro de esa carpeta
+- Trabaja sobre una copia temporal
+- Bakea modificadores
+- Aplica rotación y escala
+- Centra el origen
+- Mueve la copia a `0,0,0`
+- Crea una carpeta por objeto
+- Exporta un `.fbx` dentro de esa carpeta
 
-Tambien incluye `ReExport`, usando la ultima ruta guardada.
+También incluye `ReExport`, usando la última ruta guardada.
 
-Ahora incluye presets de export para:
+Presets de export disponibles:
 
 - `Unreal`
 - `Unity`
@@ -69,67 +72,71 @@ Ahora incluye presets de export para:
 
 ### 4. Transformaciones en lote
 
-Incluye un apartado especifico para:
+Incluye un apartado específico para:
 
-- seleccionar muchas geometrias
-- convertir automaticamente a `single-user` los meshes compartidos cuando haga falta
-- aplicar `location`, `rotation` y `scale` en lote
+- Seleccionar muchas geometrías
+- Convertir automáticamente a `single-user` los meshes compartidos cuando haga falta
+- Aplicar `location`, `rotation` y `scale` en lote
+- Recibir aviso previo si se detectan meshes con escala negativa
+- Recalcular normales automáticamente si se activa la opción
 
 Esto evita el error de Blender al intentar aplicar transformaciones sobre datos compartidos.
 
-### 5. Asset Validator automatico
+### 5. Asset Validator automático
 
-Al darle a export no aparece un boton nuevo: la validacion se ejecuta sola.
+Al exportar, la validación se ejecuta sola antes de generar el FBX.
 
 Actualmente revisa:
 
 - `Transforms`
-  - location distinta de `0,0,0`
-  - rotacion distinta de `0,0,0`
-  - escala distinta de `1,1,1`
+  - Location distinta de `0,0,0`
+  - Rotación distinta de `0,0,0`
+  - Escala distinta de `1,1,1`
 - `Duplicados`
-  - nombres que colisionan tras limpiar sufijos como `.001`
+  - Nombres que colisionan tras limpiar sufijos como `.001`
 - `Colecciones`
-  - objeto sin coleccion
-  - objeto en varias colecciones
-  - objeto fuera de las colecciones esperadas `_High`, `_Low`, `_Reference`
+  - Objeto sin colección
+  - Objeto en varias colecciones
+  - Objeto fuera de las colecciones esperadas `_High`, `_Low`, `_Reference`
+- `Normales`
+  - Meshes cerradas con normales potencialmente invertidas
 
-### 6. Informe automatico
+### 6. Informe automático
 
-Cada export genera un informe `.txt` en la carpeta de exportacion con:
+Cada export genera un informe `.txt` en la carpeta de exportación con:
 
-- resumen general
-- objetos revisados
-- incidencias detectadas
-- detalle por objeto
+- Resumen general
+- Objetos revisados
+- Incidencias detectadas
+- Detalle por objeto
 
-Esto permite revisar rapidamente si el asset esta limpio antes de seguir con Substance, Unreal u otro flujo.
+Esto permite revisar rápidamente si el asset está limpio antes de seguir con Substance, Unreal u otro flujo.
 
 ### 7. Auto update por GitHub
 
 El addon puede:
 
-- comprobar si existe una release nueva
-- abrir la release publicada
-- instalar la actualizacion desde Blender solo si activas la opcion de instalacion directa
+- Comprobar si existe una release nueva
+- Abrir la release publicada
+- Instalar la actualización desde Blender solo si activas la opción de instalación directa (desactivada por defecto)
 
 ### 8. Licencias
 
-El addon ya incluye una base para activacion comercial:
+El addon incluye una base para activación comercial:
 
-- email y clave de licencia
-- `hardware id` local
-- cache local de licencia
-- validacion contra un `license server` configurable
+- Email y clave de licencia
+- `Hardware ID` local
+- Cache local de licencia
+- Validación contra un `license server` configurable
 
-## Instalacion
+## Instalación
 
 1. Descarga `ManWTool.zip` desde `Releases`.
 2. En Blender ve a `Edit > Preferences > Add-ons > Install`.
 3. Selecciona el `.zip`.
 4. Activa el addon.
 
-## Ubicacion en Blender
+## Ubicación en Blender
 
 `View3D > Sidebar (N) > ManWTool`
 
@@ -137,33 +144,31 @@ El addon ya incluye una base para activacion comercial:
 
 1. Crear estructura de colecciones.
 2. Renombrar el asset.
-3. Colocar cada objeto en su coleccion correcta.
+3. Colocar cada objeto en su colección correcta.
 4. Exportar.
-5. Revisar el informe automatico si hay avisos.
+5. Revisar el informe automático si hay avisos.
 
-## Version actual
+## Versión actual
 
 `v1.0.12`
 
 ## Preparar releases
 
-Este repositorio `E:\GitHub\ManWTool` es el repositorio de release.
-
 1. Ejecuta `py build_addon.py`
-2. Si quieres usar el modulo protegido, ejecuta `build_protected.bat`
+2. Si quieres usar el módulo protegido, ejecuta `build_protected.bat`
 3. Sube `ManWTool.zip` a GitHub Releases
 4. Sigue la checklist de `RELEASE_CHECKLIST.md`
 
-## Roadmap corto
+## Roadmap
 
-- backend real de licencias
-- compilar parte sensible del addon
-- ampliar el validator con reglas opcionales
-- mejorar import y materiales para casos de produccion
+- Backend real de licencias
+- Compilar parte sensible del addon
+- Ampliar el validator con reglas opcionales
+- Mejorar import y materiales para casos de producción
 
 ## Servidor de licencias
 
-Tienes una version minima en:
+Documentación y código del servidor de licencias:
 
 - [LICENSE_SERVER_README.md](LICENSE_SERVER_README.md)
 - [license_server/app.py](license_server/app.py)
