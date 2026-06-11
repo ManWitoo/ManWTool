@@ -14,6 +14,17 @@ LANGUAGE_ITEMS = [
 
 TRANSLATIONS = {
     "en": {
+        "report.license_required": 'License required to use this feature.',
+        "report.normals_recalculated": 'Normals recalculated: {processed} | Failed: {failed}',
+        "ui.license.required_title": 'License required',
+        "ui.license.required_line1": 'Without an active license only the Summary tab is available.',
+        "ui.license.required_line2": 'Activate your license in the addon preferences.',
+        "ui.warning.negative_scale": 'MESH objects with negative scale detected.',
+        "ui.warning.inverted_normals": 'Closed MESH objects with inverted normals detected.',
+        "ui.warning.recalc_hint": 'You can recalculate normals while applying transforms.',
+        "ui.warning.detected_objects": 'Detected objects: {count}',
+        "ui.warning.apply_and_recalc": 'Apply scale and recalculate normals',
+        "ui.warning.continue_without": 'Continue without fixing normals',
         "addon.language": "Language",
         "prefs.appearance": "Appearance",
         "prefs.auto_update": "Auto-update (GitHub)",
@@ -257,6 +268,17 @@ for _lang in ("es", "fr", "de", "it", "pt"):
 
 TRANSLATIONS["es"].update(
     {
+        "report.license_required": 'Licencia requerida para usar esta funcion.',
+        "report.normals_recalculated": 'Normales recalculadas: {processed} | Fallos: {failed}',
+        "ui.license.required_title": 'Licencia requerida',
+        "ui.license.required_line1": 'Sin licencia activa solo puedes usar la pestana Resumen.',
+        "ui.license.required_line2": 'Activa tu licencia en las preferencias del addon.',
+        "ui.warning.negative_scale": 'Se han detectado MESH con escala negativa.',
+        "ui.warning.inverted_normals": 'Se han detectado MESH cerradas con normales invertidas.',
+        "ui.warning.recalc_hint": 'Puedes recalcular las normales al aplicar transformaciones.',
+        "ui.warning.detected_objects": 'Objetos detectados: {count}',
+        "ui.warning.apply_and_recalc": 'Aplicar escala y recalcular normales',
+        "ui.warning.continue_without": 'Continuar sin corregir normales',
         "addon.language": "Idioma",
         "prefs.appearance": "Apariencia",
         "prefs.update_sales_hint": "Recomendado para venta: comprobar updates y distribuir el ZIP manualmente.",
@@ -436,6 +458,17 @@ TRANSLATIONS["es"].update(
 
 TRANSLATIONS["fr"].update(
     {
+        "report.license_required": 'Licence requise pour utiliser cette fonction.',
+        "report.normals_recalculated": 'Normales recalculees : {processed} | Echecs : {failed}',
+        "ui.license.required_title": 'Licence requise',
+        "ui.license.required_line1": "Sans licence active, seul l'onglet Resume est disponible.",
+        "ui.license.required_line2": "Activez votre licence dans les preferences de l'addon.",
+        "ui.warning.negative_scale": 'Des MESH avec une echelle negative ont ete detectes.',
+        "ui.warning.inverted_normals": 'Des MESH fermes avec des normales inversees ont ete detectes.',
+        "ui.warning.recalc_hint": 'Vous pouvez recalculer les normales en appliquant les transformations.',
+        "ui.warning.detected_objects": 'Objets detectes : {count}',
+        "ui.warning.apply_and_recalc": "Appliquer l'echelle et recalculer les normales",
+        "ui.warning.continue_without": 'Continuer sans corriger les normales',
         "addon.language": "Langue",
         "prefs.appearance": "Apparence",
         "prefs.check_now": "Verifier maintenant",
@@ -564,6 +597,17 @@ TRANSLATIONS["fr"].update(
 
 TRANSLATIONS["de"].update(
     {
+        "report.license_required": 'Lizenz erforderlich, um diese Funktion zu nutzen.',
+        "report.normals_recalculated": 'Normalen neu berechnet: {processed} | Fehlgeschlagen: {failed}',
+        "ui.license.required_title": 'Lizenz erforderlich',
+        "ui.license.required_line1": 'Ohne aktive Lizenz ist nur der Tab Zusammenfassung verfuegbar.',
+        "ui.license.required_line2": 'Aktiviere deine Lizenz in den Addon-Einstellungen.',
+        "ui.warning.negative_scale": 'MESH-Objekte mit negativer Skalierung erkannt.',
+        "ui.warning.inverted_normals": 'Geschlossene MESH-Objekte mit invertierten Normalen erkannt.',
+        "ui.warning.recalc_hint": 'Du kannst die Normalen beim Anwenden der Transformationen neu berechnen.',
+        "ui.warning.detected_objects": 'Erkannte Objekte: {count}',
+        "ui.warning.apply_and_recalc": 'Skalierung anwenden und Normalen neu berechnen',
+        "ui.warning.continue_without": 'Ohne Korrektur der Normalen fortfahren',
         "addon.language": "Sprache",
         "prefs.appearance": "Darstellung",
         "prefs.check_now": "Jetzt prufen",
@@ -686,6 +730,17 @@ TRANSLATIONS["de"].update(
 
 TRANSLATIONS["it"].update(
     {
+        "report.license_required": 'Licenza richiesta per usare questa funzione.',
+        "report.normals_recalculated": 'Normali ricalcolate: {processed} | Falliti: {failed}',
+        "ui.license.required_title": 'Licenza richiesta',
+        "ui.license.required_line1": 'Senza licenza attiva e disponibile solo la scheda Riepilogo.',
+        "ui.license.required_line2": "Attiva la licenza nelle preferenze dell'addon.",
+        "ui.warning.negative_scale": 'Rilevati MESH con scala negativa.',
+        "ui.warning.inverted_normals": 'Rilevati MESH chiusi con normali invertite.',
+        "ui.warning.recalc_hint": 'Puoi ricalcolare le normali applicando le trasformazioni.',
+        "ui.warning.detected_objects": 'Oggetti rilevati: {count}',
+        "ui.warning.apply_and_recalc": 'Applica la scala e ricalcola le normali',
+        "ui.warning.continue_without": 'Continua senza correggere le normali',
         "addon.language": "Lingua",
         "prefs.appearance": "Aspetto",
         "prefs.check_now": "Controlla ora",
@@ -806,6 +861,17 @@ TRANSLATIONS["it"].update(
 
 TRANSLATIONS["pt"].update(
     {
+        "report.license_required": 'Licenca necessaria para usar esta funcao.',
+        "report.normals_recalculated": 'Normais recalculadas: {processed} | Falhas: {failed}',
+        "ui.license.required_title": 'Licenca necessaria',
+        "ui.license.required_line1": 'Sem licenca ativa, apenas a aba Resumo esta disponivel.',
+        "ui.license.required_line2": 'Ative sua licenca nas preferencias do addon.',
+        "ui.warning.negative_scale": 'Foram detectados MESH com escala negativa.',
+        "ui.warning.inverted_normals": 'Foram detectados MESH fechados com normais invertidas.',
+        "ui.warning.recalc_hint": 'Voce pode recalcular as normais ao aplicar as transformacoes.',
+        "ui.warning.detected_objects": 'Objetos detectados: {count}',
+        "ui.warning.apply_and_recalc": 'Aplicar escala e recalcular normais',
+        "ui.warning.continue_without": 'Continuar sem corrigir as normais',
         "addon.language": "Idioma",
         "prefs.appearance": "Aparencia",
         "prefs.check_now": "Verificar agora",
