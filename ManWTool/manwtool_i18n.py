@@ -14,6 +14,7 @@ LANGUAGE_ITEMS = [
 
 TRANSLATIONS = {
     "en": {
+        "report.network_unavailable": 'No internet connection. Update check will retry later.',
         "report.license_required": 'License required to use this feature.',
         "report.normals_recalculated": 'Normals recalculated: {processed} | Failed: {failed}',
         "ui.license.required_title": 'License required',
@@ -268,6 +269,7 @@ for _lang in ("es", "fr", "de", "it", "pt"):
 
 TRANSLATIONS["es"].update(
     {
+        "report.network_unavailable": 'Sin conexion a internet. La comprobacion de updates se reintentara mas tarde.',
         "report.license_required": 'Licencia requerida para usar esta funcion.',
         "report.normals_recalculated": 'Normales recalculadas: {processed} | Fallos: {failed}',
         "ui.license.required_title": 'Licencia requerida',
@@ -458,6 +460,7 @@ TRANSLATIONS["es"].update(
 
 TRANSLATIONS["fr"].update(
     {
+        "report.network_unavailable": 'Pas de connexion internet. La verification des mises a jour reessaiera plus tard.',
         "report.license_required": 'Licence requise pour utiliser cette fonction.',
         "report.normals_recalculated": 'Normales recalculees : {processed} | Echecs : {failed}',
         "ui.license.required_title": 'Licence requise',
@@ -597,6 +600,7 @@ TRANSLATIONS["fr"].update(
 
 TRANSLATIONS["de"].update(
     {
+        "report.network_unavailable": 'Keine Internetverbindung. Die Update-Pruefung wird spaeter wiederholt.',
         "report.license_required": 'Lizenz erforderlich, um diese Funktion zu nutzen.',
         "report.normals_recalculated": 'Normalen neu berechnet: {processed} | Fehlgeschlagen: {failed}',
         "ui.license.required_title": 'Lizenz erforderlich',
@@ -730,6 +734,7 @@ TRANSLATIONS["de"].update(
 
 TRANSLATIONS["it"].update(
     {
+        "report.network_unavailable": 'Nessuna connessione a internet. Il controllo aggiornamenti verra ritentato piu tardi.',
         "report.license_required": 'Licenza richiesta per usare questa funzione.',
         "report.normals_recalculated": 'Normali ricalcolate: {processed} | Falliti: {failed}',
         "ui.license.required_title": 'Licenza richiesta',
@@ -861,6 +866,7 @@ TRANSLATIONS["it"].update(
 
 TRANSLATIONS["pt"].update(
     {
+        "report.network_unavailable": 'Sem conexao com a internet. A verificacao de updates sera repetida mais tarde.',
         "report.license_required": 'Licenca necessaria para usar esta funcao.',
         "report.normals_recalculated": 'Normais recalculadas: {processed} | Falhas: {failed}',
         "ui.license.required_title": 'Licenca necessaria',

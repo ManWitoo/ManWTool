@@ -464,6 +464,9 @@ def updater_thread_fn(owner: str, repo: str, asset_filter: str):
             "download_kind": "ZIP",
             "release_html_url": (release_data.get("html_url") or "").strip(),
         }
+    except urllib.error.URLError as exc:
+        release_error = tr("report.network_unavailable")
+        log_exception("Fallo comprobando release de GitHub (red)", exc)
     except Exception as exc:
         release_error = str(exc)
         log_exception("Fallo comprobando release de GitHub", exc)
