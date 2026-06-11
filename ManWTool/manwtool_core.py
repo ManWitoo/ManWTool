@@ -466,9 +466,11 @@ def updater_thread_fn(owner: str, repo: str, asset_filter: str):
         }
     except urllib.error.URLError as exc:
         release_error = tr("report.network_unavailable")
+        updater_state_update({"error_kind": "network"})
         log_exception("Fallo comprobando release de GitHub (red)", exc)
     except Exception as exc:
         release_error = str(exc)
+        updater_state_update({"error_kind": "other"})
         log_exception("Fallo comprobando release de GitHub", exc)
 
     selected = release_candidate
@@ -533,6 +535,8 @@ def start_update_check(force=False):
             "download_kind": "ZIP",
             "release_html_url": "",
             "error": "",
+            "error_kind": "",
+            "manual": bool(force),
         }
     )
 
@@ -572,7 +576,11 @@ def poll_update_check_timer():
             except Exception:
                 pass
     else:
-        prefs.last_update_error = updater_state_get("error", tr("report.unknown_error"))
+        if updater_state_get("error_kind") == "network" and not updater_state_get("manual"):
+            prefs.last_update_error = ""
+            log_info("Sin conexion al comprobar updates automaticamente; se reintentara en el proximo arranque.")
+        else:
+            prefs.last_update_error = updater_state_get("error", tr("report.unknown_error"))
         prefs.update_available = False
 
     updater_state_update({"checking": False})
