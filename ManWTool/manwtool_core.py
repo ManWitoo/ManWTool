@@ -33,15 +33,12 @@ except Exception:
     except Exception:
         protected_match_texture_files = None
 
-bl_info = {
-    "name": "ManWTool",
-    "author": "Jairo (ManW)",
-    "version": (1, 1, 0),
-    "blender": (3, 6, 0),
-    "location": "View3D > Sidebar (N) > ManWTool",
-    "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
-    "category": "3D View",
-}
+def _addon_bl_info():
+    # bl_info vive en __init__.py (Blender lo exige ahi de forma literal).
+    import sys
+
+    pkg = sys.modules.get(__package__ or "ManWTool")
+    return getattr(pkg, "bl_info", None) or {}
 
 
 ADDON_ID = "ManWTool"
@@ -104,7 +101,7 @@ TEXTURE_RULES = {
 }
 
 def current_version_str():
-    return ".".join(map(str, bl_info.get("version", (0, 0, 0))))
+    return ".".join(map(str, _addon_bl_info().get("version", (0, 0, 0))))
 
 
 def version_tuple_from_any(text: str):
@@ -564,7 +561,7 @@ def poll_update_check_timer():
         prefs.latest_download_kind = updater_state_get("download_kind", "ZIP")
         prefs.latest_release_url = updater_state_get("release_html_url", "")
         prefs.last_update_error = ""
-        prefs.update_available = version_tuple_from_any(latest_tag) > tuple(bl_info.get("version", (0, 0, 0)))
+        prefs.update_available = version_tuple_from_any(latest_tag) > tuple(_addon_bl_info().get("version", (0, 0, 0)))
         if prefs.update_available and prefs.last_notified_version != prefs.latest_version:
             prefs.last_notified_version = prefs.latest_version
             try:

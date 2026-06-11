@@ -1,9 +1,18 @@
+bl_info = {
+    "name": "ManWTool",
+    "author": "Jairo (ManW)",
+    "version": (1, 1, 1),
+    "blender": (3, 6, 0),
+    "location": "View3D > Sidebar (N) > ManWTool",
+    "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
+    "category": "3D View",
+}
+
 import bpy
 
 from bpy.props import PointerProperty
 
 from .manwtool_core import (
-    bl_info,
     clear_preview_collection,
     init_preview_collection,
     load_cached_license_into_prefs,
