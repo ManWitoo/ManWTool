@@ -35,7 +35,7 @@ from .manwtool_core import (
     get_visible_mesh_objects,
     load_cached_license_into_prefs,
     log_exception,
-    post_install_timer,
+    reload_addon_timer,
     prepare_imported_objects,
     start_update_check,
     validate_license_key_format,
@@ -161,11 +161,16 @@ class MANWTOOL_OT_install_update(Operator):
             download_file(url, installer_path, timeout=60)
             zip_info = validate_release_zip(installer_path, expected_version=prefs.latest_version)
             call_in_preferences_context(bpy.ops.preferences.addon_install, filepath=installer_path, overwrite=True)
-            prefs.restart_required = True
+            # Recarga en caliente diferida: el reload debe ocurrir FUERA de este
+            # operador (cuyo propio modulo se va a reimportar). Si falla, el timer
+            # marca restart_required como plan B.
+            prefs.restart_required = False
             POST_INSTALL["pending"] = True
             POST_INSTALL["zip_path"] = installer_path
-            bpy.app.timers.register(post_install_timer, first_interval=0.2)
-            self.report({"INFO"}, tr("report.update_installed", version=zip_info["version"]))
+            POST_INSTALL["tmp_dir"] = tmp_dir
+            POST_INSTALL["version"] = zip_info["version"]
+            bpy.app.timers.register(reload_addon_timer, first_interval=0.3)
+            self.report({"INFO"}, tr("report.update_reloaded", version=zip_info["version"]))
             return {"FINISHED"}
         except Exception as exc:
             prefs.last_update_error = str(exc)

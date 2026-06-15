@@ -44,8 +44,6 @@ def _addon_bl_info():
 ADDON_ID = "ManWTool"
 DEFAULT_REPO_OWNER = "ManWitoo"
 DEFAULT_REPO_NAME = "ManWTool"
-DEFAULT_ADDON_FILE = "ManWTool/__init__.py"
-EXPECTED_ZIP_ROOT = "ManWTool/"
 
 _preview_col = None
 
@@ -73,6 +71,8 @@ UPDATER_STATE = {
 POST_INSTALL = {
     "pending": False,
     "zip_path": "",
+    "tmp_dir": "",
+    "version": "",
 }
 
 LICENSE_CACHE_FILE = "license_cache.json"
@@ -328,18 +328,6 @@ def github_latest_release_url(owner: str, repo: str):
     return f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
 
 
-def github_repo_api_url(owner: str, repo: str):
-    return f"https://api.github.com/repos/{owner}/{repo}"
-
-
-def github_raw_file_url(owner: str, repo: str, branch: str, file_path: str):
-    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
-
-
-def github_repo_html_url(owner: str, repo: str):
-    return f"https://github.com/{owner}/{repo}"
-
-
 def http_get_json(url: str, timeout=10):
     req = urllib.request.Request(
         url,
@@ -351,16 +339,6 @@ def http_get_json(url: str, timeout=10):
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
-
-
-def http_get_text(url: str, timeout=10):
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": f"{ADDON_ID}/{current_version_str()} (Blender Add-on)"},
-        method="GET",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="replace")
 
 
 def download_file(url: str, dst_path: str, timeout=30):
@@ -587,15 +565,74 @@ def poll_update_check_timer():
     return None
 
 
-def post_install_timer():
+def cleanup_post_install_temp():
+    """Borra el ZIP descargado y su carpeta temporal tras instalar."""
+    tmp_dir = POST_INSTALL.get("tmp_dir") or ""
+    POST_INSTALL["zip_path"] = ""
+    POST_INSTALL["tmp_dir"] = ""
+    if tmp_dir and os.path.isdir(tmp_dir):
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            log_debug(f"No se pudo borrar el temporal de update {tmp_dir}.")
+
+
+def _purge_addon_modules():
+    """Elimina los modulos del addon de sys.modules para forzar reimport del codigo nuevo."""
+    import sys
+
+    prefix = f"{ADDON_ID}."
+    for name in [m for m in list(sys.modules) if m == ADDON_ID or m.startswith(prefix)]:
+        try:
+            del sys.modules[name]
+        except Exception:
+            log_debug(f"No se pudo purgar el modulo {name} de sys.modules.")
+
+
+def _mark_restart_required():
     prefs = get_addon_prefs()
-    POST_INSTALL["pending"] = False
     if prefs:
         prefs.restart_required = True
-        try:
-            bpy.ops.manwtool.restart_required_popup("INVOKE_DEFAULT")
-        except Exception:
-            pass
+    try:
+        bpy.ops.manwtool.restart_required_popup("INVOKE_DEFAULT")
+    except Exception:
+        pass
+
+
+def reload_addon_timer():
+    """Recarga el addon en caliente sin reiniciar Blender.
+
+    Debe ejecutarse desde un timer (no desde el operador que lanza el update),
+    porque desactiva y reactiva el propio paquete del addon. Si la recarga
+    falla (por ejemplo con un modulo nativo .pyd ya cargado en Windows), se
+    marca restart_required como plan B.
+    """
+    import addon_utils
+
+    POST_INSTALL["pending"] = False
+    version = POST_INSTALL.get("version") or ""
+    cleanup_post_install_temp()
+
+    try:
+        addon_utils.disable(ADDON_ID, default_set=False)
+    except Exception as exc:
+        log_exception("No se pudo desactivar el addon para recargar", exc)
+
+    _purge_addon_modules()
+
+    try:
+        addon_utils.enable(ADDON_ID, default_set=False)
+        log_info(f"ManWTool {version} recargado en caliente sin reiniciar.")
+        # El codigo nuevo ya esta activo: limpia el aviso de update pendiente
+        # para que el banner desaparezca sin esperar a la siguiente comprobacion.
+        prefs = get_addon_prefs()
+        if prefs:
+            prefs.update_available = False
+            prefs.restart_required = False
+            prefs.last_update_error = ""
+    except Exception as exc:
+        log_exception("Fallo la recarga en caliente; se requiere reinicio", exc)
+        _mark_restart_required()
     return None
 
 
@@ -700,10 +737,29 @@ def get_mesh_export_name_map(objects):
     return name_map
 
 
+_SCENE_EXPORT_NAME_MAP_CACHE = {"key": None, "map": {}}
+
+
+def get_scene_export_name_map():
+    """Mapa de nombres de export de toda la escena, cacheado por nombres de malla.
+
+    El validador se ejecuta en cada redibujado del panel; recalcular este mapa
+    sobre todos los objetos (con regex por objeto) en cada repintado causaba lag
+    en escenas grandes. La clave solo cambia si se anaden, borran o renombran
+    mallas, que es justo cuando los duplicados pueden variar.
+    """
+    scene_meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+    key = tuple(sorted(obj.name for obj in scene_meshes))
+    if _SCENE_EXPORT_NAME_MAP_CACHE["key"] == key:
+        return _SCENE_EXPORT_NAME_MAP_CACHE["map"]
+    name_map = get_mesh_export_name_map(scene_meshes)
+    _SCENE_EXPORT_NAME_MAP_CACHE.update({"key": key, "map": name_map})
+    return name_map
+
+
 def collect_export_validation(context, objects):
     mesh_objects = [obj for obj in objects if obj and obj.name in bpy.data.objects and obj.type == "MESH"]
-    scene_meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
-    scene_name_map = get_mesh_export_name_map(scene_meshes)
+    scene_name_map = get_scene_export_name_map()
 
     results = []
     summary = {
@@ -853,15 +909,17 @@ def is_closed_manifold_mesh(obj):
 
 
 def has_inverted_normals_closed_mesh(obj):
-    if not is_closed_manifold_mesh(obj):
+    if obj is None or obj.type != "MESH" or obj.data is None:
         return False
     bm = bmesh.new()
     try:
         bm.from_mesh(obj.data)
         if not bm.faces:
             return False
-        volume = bm.calc_volume(signed=True)
-        return volume < 0.0
+        # Solo tiene sentido medir volumen en mallas cerradas (manifold).
+        if not all(edge.is_manifold for edge in bm.edges):
+            return False
+        return bm.calc_volume(signed=True) < 0.0
     except Exception:
         return False
     finally:
@@ -1055,10 +1113,10 @@ def apply_export_prep_to_object(context, obj):
 
 def export_mesh_object_to_fbx(context, src, base_dir, report_fn, export_settings=None):
     if src is None:
-        report_fn({"ERROR"}, "No object to export." if get_effective_language() == "en" else "No hay objeto para exportar.")
+        report_fn({"ERROR"}, tr("report.export.no_object"))
         return False
     if src.type != "MESH":
-        report_fn({"ERROR"}, f"{src.name} is not a MESH." if get_effective_language() == "en" else f"{src.name} no es un MESH.")
+        report_fn({"ERROR"}, tr("report.export.not_mesh", name=src.name))
         return False
 
     base_dir = ensure_valid_export_dir(base_dir, report_fn)
@@ -1070,14 +1128,7 @@ def export_mesh_object_to_fbx(context, src, base_dir, report_fn, export_settings
     try:
         os.makedirs(export_dir, exist_ok=True)
     except Exception as exc:
-        report_fn(
-            {"ERROR"},
-            (
-                f"Could not prepare export folder for {src.name}: {exc}"
-                if get_effective_language() == "en"
-                else f"No se pudo preparar la carpeta de exportacion para {src.name}: {exc}"
-            ),
-        )
+        report_fn({"ERROR"}, tr("report.export.folder_failed", name=src.name, error=exc))
         log_exception(f"No se pudo crear la carpeta de exportacion {export_dir}", exc)
         return False
     final_fbx_path = os.path.join(export_dir, f"{export_name}.fbx")
@@ -1123,10 +1174,7 @@ def export_mesh_object_to_fbx(context, src, base_dir, report_fn, export_settings
             use_mesh_modifiers=bool(settings["use_mesh_modifiers"]),
         )
     except Exception as exc:
-        report_fn(
-            {"ERROR"},
-            f"Error exporting {src.name}: {exc}" if get_effective_language() == "en" else f"Error exportando {src.name}: {exc}",
-        )
+        report_fn({"ERROR"}, tr("report.export.error", name=src.name, error=exc))
         log_exception(f"Error exportando {src.name}", exc)
         return False
     finally:
@@ -1152,7 +1200,7 @@ def export_mesh_object_to_fbx(context, src, base_dir, report_fn, export_settings
             except Exception:
                 pass
 
-    report_fn({"INFO"}, f"Exported: {final_fbx_path}" if get_effective_language() == "en" else f"Exportado: {final_fbx_path}")
+    report_fn({"INFO"}, tr("report.export.exported", path=final_fbx_path))
     return True
 
 
