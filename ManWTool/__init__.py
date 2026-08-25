@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ManWTool",
     "author": "Jairo (ManW)",
-    "version": (1, 2, 1),
+    "version": (1, 3, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > ManWTool",
     "description": "Colecciones, renombrado, export FBX, import FBX automatico y updater por GitHub.",
@@ -23,6 +23,7 @@ from .manwtool_core import (
 )
 from .manwtool_operators import CLASSES as OPERATOR_CLASSES
 from .manwtool_properties import CLASSES as PROPERTY_CLASSES, MANWTOOL_Properties
+from .manwtool_sync import refresh_handler_from_prefs, remove_handler
 from .manwtool_ui import CLASSES as UI_CLASSES
 
 
@@ -55,6 +56,8 @@ def register():
     except Exception as exc:
         log_exception("No se pudo recargar el logo", exc)
 
+    refresh_handler_from_prefs()
+
     try:
         if not bpy.app.timers.is_registered(startup_update_check_timer):
             bpy.app.timers.register(startup_update_check_timer, first_interval=2.0)
@@ -63,6 +66,8 @@ def register():
 
 
 def unregister():
+    remove_handler()
+
     if hasattr(bpy.types.Scene, "manwtool_props"):
         del bpy.types.Scene.manwtool_props
 

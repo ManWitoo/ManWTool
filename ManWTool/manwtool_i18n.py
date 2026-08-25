@@ -256,6 +256,17 @@ TRANSLATIONS = {
         "report.export.folder_failed": "Could not prepare export folder for {name}: {error}",
         "report.export.error": "Error exporting {name}: {error}",
         "report.export.exported": "Exported: {path}",
+        "prefs.renaming": "Renaming",
+        "ui.sync.title": "Data-block names",
+        "ui.sync.toggle": "Sync Mesh Names on Rename",
+        "ui.sync.toggle_hint": "Shared or linked data-blocks are never renamed.",
+        "ui.sync.run": "Sync All Data Names",
+        "ui.sync.scope.selected": "Selected",
+        "ui.sync.scope.scene": "Scene",
+        "ui.sync.scope.file": "File",
+        "report.sync.done": "Synced {count} data-blocks",
+        "report.sync.skipped": "{count} skipped (shared or linked)",
+        "report.sync.nothing": "Nothing to sync",
         "state.license.inactive": "Inactive",
     },
     "es": {},
@@ -276,6 +287,17 @@ for _lang in ("es", "fr", "de", "it", "pt"):
 
 TRANSLATIONS["es"].update(
     {
+        "prefs.renaming": "Renombrado",
+        "ui.sync.title": "Nombres de datablock",
+        "ui.sync.toggle": "Sincronizar nombres de mesh",
+        "ui.sync.toggle_hint": "Los datablocks compartidos o linkeados nunca se renombran.",
+        "ui.sync.run": "Sincronizar todos los nombres",
+        "ui.sync.scope.selected": "Seleccion",
+        "ui.sync.scope.scene": "Escena",
+        "ui.sync.scope.file": "Archivo",
+        "report.sync.done": "Sincronizados {count} datablocks",
+        "report.sync.skipped": "{count} saltados (compartidos o linkeados)",
+        "report.sync.nothing": "Nada que sincronizar",
         "report.network_unavailable": 'Sin conexion a internet. La comprobacion de updates se reintentara mas tarde.',
         "report.license_required": 'Licencia requerida para usar esta funcion.',
         "report.normals_recalculated": 'Normales recalculadas: {processed} | Fallos: {failed}',
@@ -474,6 +496,17 @@ TRANSLATIONS["es"].update(
 
 TRANSLATIONS["fr"].update(
     {
+        "prefs.renaming": "Renommage",
+        "ui.sync.title": "Noms de blocs de donnees",
+        "ui.sync.toggle": "Synchroniser les noms de mesh",
+        "ui.sync.toggle_hint": "Les blocs partages ou lies ne sont jamais renommes.",
+        "ui.sync.run": "Synchroniser tous les noms",
+        "ui.sync.scope.selected": "Selection",
+        "ui.sync.scope.scene": "Scene",
+        "ui.sync.scope.file": "Fichier",
+        "report.sync.done": "{count} blocs de donnees synchronises",
+        "report.sync.skipped": "{count} ignores (partages ou lies)",
+        "report.sync.nothing": "Rien a synchroniser",
         "report.network_unavailable": 'Pas de connexion internet. La verification des mises a jour reessaiera plus tard.',
         "report.license_required": 'Licence requise pour utiliser cette fonction.',
         "report.normals_recalculated": 'Normales recalculees : {processed} | Echecs : {failed}',
@@ -615,6 +648,17 @@ TRANSLATIONS["fr"].update(
 
 TRANSLATIONS["de"].update(
     {
+        "prefs.renaming": "Umbenennen",
+        "ui.sync.title": "Datenblock-Namen",
+        "ui.sync.toggle": "Mesh-Namen beim Umbenennen synchronisieren",
+        "ui.sync.toggle_hint": "Geteilte oder verlinkte Datenblocke werden nie umbenannt.",
+        "ui.sync.run": "Alle Namen synchronisieren",
+        "ui.sync.scope.selected": "Auswahl",
+        "ui.sync.scope.scene": "Szene",
+        "ui.sync.scope.file": "Datei",
+        "report.sync.done": "{count} Datenblocke synchronisiert",
+        "report.sync.skipped": "{count} ubersprungen (geteilt oder verlinkt)",
+        "report.sync.nothing": "Nichts zu synchronisieren",
         "report.network_unavailable": 'Keine Internetverbindung. Die Update-Pruefung wird spaeter wiederholt.',
         "report.license_required": 'Lizenz erforderlich, um diese Funktion zu nutzen.',
         "report.normals_recalculated": 'Normalen neu berechnet: {processed} | Fehlgeschlagen: {failed}',
@@ -750,6 +794,17 @@ TRANSLATIONS["de"].update(
 
 TRANSLATIONS["it"].update(
     {
+        "prefs.renaming": "Rinomina",
+        "ui.sync.title": "Nomi dei datablock",
+        "ui.sync.toggle": "Sincronizza i nomi delle mesh",
+        "ui.sync.toggle_hint": "I datablock condivisi o collegati non vengono mai rinominati.",
+        "ui.sync.run": "Sincronizza tutti i nomi",
+        "ui.sync.scope.selected": "Selezione",
+        "ui.sync.scope.scene": "Scena",
+        "ui.sync.scope.file": "File",
+        "report.sync.done": "Sincronizzati {count} datablock",
+        "report.sync.skipped": "{count} saltati (condivisi o collegati)",
+        "report.sync.nothing": "Niente da sincronizzare",
         "report.network_unavailable": 'Nessuna connessione a internet. Il controllo aggiornamenti verra ritentato piu tardi.',
         "report.license_required": 'Licenza richiesta per usare questa funzione.',
         "report.normals_recalculated": 'Normali ricalcolate: {processed} | Falliti: {failed}',
@@ -883,6 +938,17 @@ TRANSLATIONS["it"].update(
 
 TRANSLATIONS["pt"].update(
     {
+        "prefs.renaming": "Renomear",
+        "ui.sync.title": "Nomes de datablock",
+        "ui.sync.toggle": "Sincronizar nomes de mesh",
+        "ui.sync.toggle_hint": "Datablocks partilhados ou linkados nunca sao renomeados.",
+        "ui.sync.run": "Sincronizar todos os nomes",
+        "ui.sync.scope.selected": "Selecao",
+        "ui.sync.scope.scene": "Cena",
+        "ui.sync.scope.file": "Ficheiro",
+        "report.sync.done": "Sincronizados {count} datablocks",
+        "report.sync.skipped": "{count} saltados (partilhados ou linkados)",
+        "report.sync.nothing": "Nada para sincronizar",
         "report.network_unavailable": 'Sem conexao com a internet. A verificacao de updates sera repetida mais tarde.',
         "report.license_required": 'Licenca necessaria para usar esta funcao.',
         "report.normals_recalculated": 'Normais recalculadas: {processed} | Falhas: {failed}',

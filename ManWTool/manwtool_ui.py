@@ -378,6 +378,32 @@ def draw_section_rename(layout, context, props):
     btn.enabled = bool(obj and obj.type == "MESH")
     btn.operator("manwtool.rename_geo_data_material", text=tr("ui.apply_name"), icon="FILE_TICK")
 
+    draw_data_name_sync(layout, props)
+
+
+def draw_data_name_sync(layout, props):
+    prefs = get_addon_preferences()
+
+    box = layout.box()
+    box.label(text=tr("ui.sync.title"), icon="OUTLINER_OB_MESH")
+
+    if not prefs:
+        warn = box.box()
+        warn.alert = True
+        warn.label(text=tr("ui.error.prefs_unavailable"), icon="ERROR")
+        return
+
+    box.prop(prefs, "sync_data_names", text=tr("ui.sync.toggle"))
+
+    hint = box.box()
+    hint.enabled = False
+    hint.label(text=tr("ui.sync.toggle_hint"))
+
+    row = box.row(align=True)
+    row.prop(props, "sync_scope", text="")
+    op = row.operator("manwtool.sync_all_data_names", text=tr("ui.sync.run"), icon="FILE_REFRESH")
+    op.scope = props.sync_scope
+
 
 def draw_section_export(layout, context, props):
     if not is_license_active():

@@ -5,6 +5,7 @@ from .manwtool_collections import COLLECTION_TARGET_ITEMS, get_collection_target
 from .manwtool_core import DEFAULT_REPO_NAME, DEFAULT_REPO_OWNER, current_version_str
 from .manwtool_export import AXIS_ITEMS, EXPORT_PRESET_ITEMS, get_export_preset_items
 from .manwtool_i18n import LANGUAGE_ITEMS, tr
+from .manwtool_sync import on_sync_data_names_updated
 
 
 def get_ui_section_items(_self=None, _context=None):
@@ -43,6 +44,13 @@ RENAME_AFFIX_MODE_ITEMS = [
 ]
 
 
+SYNC_SCOPE_ITEMS = [
+    ("SELECTED", "Selected", ""),
+    ("SCENE", "Scene", ""),
+    ("FILE", "File", ""),
+]
+
+
 class MANWTOOL_Preferences(AddonPreferences):
     bl_idname = "ManWTool"
 
@@ -55,6 +63,15 @@ class MANWTOOL_Preferences(AddonPreferences):
     allow_in_app_update_install: BoolProperty(name="Permitir instalacion directa", default=False)
     check_interval_days: IntProperty(name="Intervalo (dias)", default=1, min=1, max=30)
     debug_logging: BoolProperty(name="Debug logging", default=False)
+    sync_data_names: BoolProperty(
+        name="Sync Mesh Names on Rename",
+        description=(
+            "When renaming an object, also rename its data-block. "
+            "Does not affect data-blocks shared by multiple objects, nor linked data."
+        ),
+        default=False,
+        update=on_sync_data_names_updated,
+    )
     last_check_time: FloatProperty(default=0.0)
     update_available: BoolProperty(default=False)
     latest_version: StringProperty(default="")
@@ -142,6 +159,13 @@ class MANWTOOL_Preferences(AddonPreferences):
             err.alert = True
             err.label(text=f"Error: {self.last_update_error}", icon="ERROR")
 
+        renaming = layout.box()
+        renaming.label(text=tr("prefs.renaming"), icon="FILE_TEXT")
+        renaming.prop(self, "sync_data_names", text=tr("ui.sync.toggle"))
+        sync_hint = renaming.box()
+        sync_hint.enabled = False
+        sync_hint.label(text=tr("ui.sync.toggle_hint"))
+
         debug = layout.box()
         debug.label(text=tr("prefs.debug"), icon="CONSOLE")
         debug.prop(self, "debug_logging", text=tr("prefs.label.debug_logging"))
@@ -181,6 +205,7 @@ class MANWTOOL_Properties(PropertyGroup):
     rename_base: StringProperty(name="Nombre", default="Object")
     rename_suffix: StringProperty(name="Sufijo", default="")
     mesh_name_filter: StringProperty(name="Buscar geometria", default="")
+    sync_scope: EnumProperty(name="Ambito", items=SYNC_SCOPE_ITEMS, default="SELECTED")
     export_dir: StringProperty(name="Carpeta exportacion", subtype="DIR_PATH", default="")
     last_export_dir: StringProperty(name="Ultima carpeta", subtype="DIR_PATH", default="")
     export_preset: EnumProperty(name="Preset", items=EXPORT_PRESET_ITEMS, default="UNREAL")

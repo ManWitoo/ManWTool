@@ -3,7 +3,7 @@ import tempfile
 
 import bpy
 
-from bpy.props import BoolProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, StringProperty
 from bpy.types import Menu, Operator
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
@@ -45,6 +45,13 @@ from .manwtool_core import (
 )
 from .manwtool_export import get_export_settings_for_props, reset_export_preset_to_defaults
 from .manwtool_i18n import tr
+from .manwtool_properties import SYNC_SCOPE_ITEMS
+from .manwtool_sync import (
+    SYNC_STATUS_LINKED,
+    SYNC_STATUS_SHARED,
+    SYNC_STATUS_SYNCED,
+    sync_objects,
+)
 
 
 def get_import_requirements_status(props):
@@ -519,6 +526,45 @@ class MANWTOOL_OT_rename_geo_data_material(Operator):
         return {"FINISHED"}
 
 
+class MANWTOOL_OT_sync_all_data_names(Operator):
+    bl_idname = "manwtool.sync_all_data_names"
+    bl_label = "Sync All Data Names"
+    bl_options = {"REGISTER", "UNDO"}
+
+    scope: EnumProperty(
+        name="Scope",
+        items=SYNC_SCOPE_ITEMS,
+        default="SELECTED",
+    )
+
+    def get_objects(self, context):
+        scope = (self.scope or "SELECTED").upper()
+        if scope == "FILE":
+            return list(bpy.data.objects)
+        if scope == "SCENE":
+            return list(context.scene.objects)
+        return list(context.selected_objects)
+
+    def execute(self, context):
+        if not ensure_license_active(self.report):
+            return {"CANCELLED"}
+
+        counters = sync_objects(self.get_objects(context))
+        synced = counters[SYNC_STATUS_SYNCED]
+        skipped = counters[SYNC_STATUS_SHARED] + counters[SYNC_STATUS_LINKED]
+
+        if synced == 0:
+            # Nada que hacer: sin cambios no hay paso de undo que registrar.
+            self.report({"INFO"}, tr("report.sync.nothing"))
+            return {"CANCELLED"}
+
+        message = tr("report.sync.done", count=synced)
+        if skipped:
+            message = f"{message} {tr('report.sync.skipped', count=skipped)}"
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
 class MANWTOOL_OT_export_fbx(Operator, ExportHelper):
     bl_idname = "manwtool.export_fbx"
     bl_label = "Export FBX"
@@ -865,6 +911,7 @@ CLASSES = (
     MANWTOOL_OT_move_selected_to_collection,
     MANWTOOL_OT_auto_organize_collections,
     MANWTOOL_OT_rename_geo_data_material,
+    MANWTOOL_OT_sync_all_data_names,
     MANWTOOL_OT_export_fbx,
     MANWTOOL_OT_reexport_fbx,
     MANWTOOL_OT_select_all_meshes,
