@@ -26,10 +26,10 @@ from .manwtool_core import (
     download_file,
     build_rename_name,
     export_mesh_object_to_fbx,
-    get_empty_objects_from_selection,
     get_addon_prefs,
     get_current_export_dir,
     get_mesh_objects_from_selection,
+    get_transform_targets_from_selection,
     get_machine_fingerprint,
     get_visible_empty_objects,
     get_visible_mesh_objects,
@@ -704,12 +704,11 @@ class MANWTOOL_OT_apply_selected_transforms(Operator):
     def invoke(self, context, event):
         if not ensure_license_active(self.report):
             return {"CANCELLED"}
-        selected_meshes = get_mesh_objects_from_selection(context)
-        selected_empties = get_empty_objects_from_selection(context)
-        selected_objects = selected_meshes + selected_empties
+        selected_objects = get_transform_targets_from_selection(context)
         if not selected_objects:
             self.report({"ERROR"}, tr("report.no_mesh_or_empty_selected"))
             return {"CANCELLED"}
+        selected_meshes = [obj for obj in selected_objects if obj.type == "MESH"]
 
         negative_scale_meshes = get_negative_scale_mesh_objects(selected_meshes)
         inverted_normals_meshes = get_inverted_normals_mesh_objects(selected_meshes)

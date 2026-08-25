@@ -715,6 +715,31 @@ def get_empty_objects_from_selection(context):
     return [obj for obj in context.selected_objects if obj.type == "EMPTY"]
 
 
+def get_transform_targets_from_selection(context):
+    """Devuelve los objetos MESH/EMPTY seleccionados MAS todos sus descendientes.
+
+    Al aplicar transformaciones el usuario suele seleccionar solo el padre (grupo)
+    esperando que se apliquen a toda la jerarquia. Aqui expandimos la seleccion a
+    todos los hijos recursivos para que el 'Aplicar transforms' hornee la jerarquia
+    completa (equivalente al Ctrl+A de Blender sobre padre + hijos)."""
+    seen = set()
+    targets = []
+
+    def add(obj):
+        if obj is None or obj.type not in {"MESH", "EMPTY"}:
+            return
+        if obj.name in seen:
+            return
+        seen.add(obj.name)
+        targets.append(obj)
+
+    for obj in context.selected_objects:
+        add(obj)
+        for child in obj.children_recursive:
+            add(child)
+    return targets
+
+
 def get_visible_mesh_objects(context):
     return [obj for obj in context.view_layer.objects if obj.visible_get() and obj.type == "MESH"]
 
@@ -972,12 +997,11 @@ def recalculate_normals_for_objects(context, objects):
 
 
 def run_apply_selected_transforms(context, report_fn, recalc_suspect_normals=False):
-    selected_meshes = get_mesh_objects_from_selection(context)
-    selected_empties = get_empty_objects_from_selection(context)
-    selected_objects = selected_meshes + selected_empties
+    selected_objects = get_transform_targets_from_selection(context)
     if not selected_objects:
         report_fn({"ERROR"}, tr("report.no_mesh_or_empty_selected"))
         return {"CANCELLED"}
+    selected_meshes = [obj for obj in selected_objects if obj.type == "MESH"]
 
     negative_scale_meshes = get_negative_scale_mesh_objects(selected_meshes)
     inverted_normals_meshes = get_inverted_normals_mesh_objects(selected_meshes)
@@ -993,6 +1017,7 @@ def run_apply_selected_transforms(context, report_fn, recalc_suspect_normals=Fal
         apply_rotation=True,
         apply_scale=True,
         make_single_user=True,
+        batch=True,
     )
 
     if result["processed"] == 0:
@@ -1031,9 +1056,23 @@ def apply_transformations_to_objects(
     move_to_origin=False,
     reset_rotation_after=False,
     make_single_user=False,
+    batch=False,
 ):
     if not objects:
         return {"processed": 0, "single_user_made": 0, "failed": 0}
+
+    # El modo lote solo tiene sentido cuando unicamente aplicamos transformaciones
+    # (sin origin_set / move_to_origin / reset_rotation por objeto). Aplicar toda la
+    # jerarquia de una sola pasada es lo unico que hornea correctamente padre + hijos.
+    if batch and not (set_origin or move_to_origin or reset_rotation_after):
+        return _apply_transformations_batch(
+            context,
+            objects,
+            apply_location=apply_location,
+            apply_rotation=apply_rotation,
+            apply_scale=apply_scale,
+            make_single_user=make_single_user,
+        )
 
     ensure_object_mode()
     view_layer = context.view_layer
@@ -1084,6 +1123,75 @@ def apply_transformations_to_objects(
         "single_user_made": single_user_made,
         "failed": failed,
     }
+
+
+def _apply_transformations_batch(
+    context,
+    objects,
+    *,
+    apply_location=True,
+    apply_rotation=True,
+    apply_scale=True,
+    make_single_user=False,
+):
+    """Aplica transformaciones a toda la seleccion en UNA sola pasada.
+
+    A diferencia del bucle objeto-a-objeto, seleccionar padre + hijos juntos y llamar
+    una sola vez a transform_apply hornea correctamente la jerarquia: la escala/rotacion
+    heredada del padre queda horneada en la geometria de los hijos y todos terminan con
+    transform identidad (mismo comportamiento que Ctrl+A sobre la jerarquia completa)."""
+    ensure_object_mode()
+    view_layer = context.view_layer
+    prev_active = view_layer.objects.active
+    prev_selected = list(context.selected_objects)
+
+    valid = [
+        obj
+        for obj in objects
+        if obj is not None and obj.name in bpy.data.objects and obj.type in {"MESH", "EMPTY"}
+    ]
+    if not valid:
+        return {"processed": 0, "single_user_made": 0, "failed": 0}
+
+    single_user_made = 0
+    if make_single_user:
+        # transform_apply falla sobre datos multi-usuario: hacer single-user antes de aplicar.
+        for obj in valid:
+            if obj.type == "MESH" and obj.data and obj.data.users > 1:
+                obj.data = obj.data.copy()
+                single_user_made += 1
+
+    try:
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in valid:
+            obj.select_set(True)
+        view_layer.objects.active = valid[0]
+        bpy.ops.object.transform_apply(
+            location=bool(apply_location),
+            rotation=bool(apply_rotation),
+            scale=bool(apply_scale),
+        )
+        return {"processed": len(valid), "single_user_made": single_user_made, "failed": 0}
+    except Exception as exc:
+        log_exception("Fallo aplicando transformaciones en lote; reintentando objeto a objeto", exc)
+        # Fallback: procesar objeto a objeto (menos correcto para jerarquias, pero robusto).
+        fallback = apply_transformations_to_objects(
+            context,
+            valid,
+            apply_location=apply_location,
+            apply_rotation=apply_rotation,
+            apply_scale=apply_scale,
+            make_single_user=False,
+        )
+        fallback["single_user_made"] += single_user_made
+        return fallback
+    finally:
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in prev_selected:
+            if obj.name in bpy.data.objects:
+                obj.select_set(True)
+        if prev_active and prev_active.name in bpy.data.objects:
+            view_layer.objects.active = prev_active
 
 
 def apply_export_prep_to_object(context, obj):
