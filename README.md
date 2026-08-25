@@ -9,14 +9,15 @@ ManWTool centraliza varias tareas repetitivas de producción en una sola herrami
 - Crea estructura de colecciones para assets
 - Mueve y organiza la selección automáticamente en `High`, `Low` y `Reference`
 - Renombra objeto, mesh data y material con una sola acción
+- Sincroniza automáticamente el nombre del datablock con el del objeto al renombrar
 - Exporta FBX generando una carpeta por objeto
 - Usa presets de export para `Unreal`, `Unity`, `Highpoly Bake`, `Lowpoly Game` y `Custom`
-- Aplica transformaciones en lote aunque haya meshes compartidos
+- Aplica transformaciones en lote sobre jerarquías completas, aunque haya meshes compartidos
 - Avisa antes de aplicar transformaciones si detecta meshes con escala negativa
 - Detecta meshes cerradas con normales potencialmente invertidas
 - Recalcula normales automáticamente durante la aplicación de transformaciones (opcional)
 - Guarda la última carpeta para `ReExport`
-- Comprueba actualizaciones desde GitHub
+- Comprueba actualizaciones desde GitHub y se recarga en caliente, sin reiniciar Blender
 - Valida automáticamente el asset al exportar
 - Genera un informe `.txt` con incidencias del export
 
@@ -47,6 +48,29 @@ Permite aplicar naming consistente al objeto activo:
 - Crea o asigna un material con el mismo nombre
 
 Pensado para evitar errores de naming y acelerar la preparación del asset.
+
+#### Sincronización automática de nombres
+
+En Blender el objeto y su datablock son datos independientes con nombres independientes:
+renombrar un objeto en el Outliner, con `F2` o en el panel `N` no toca el nombre de su mesh.
+Acabas con `SM_LilyFlower_Geo` conteniendo una mesh llamada `Plane.003`, lo que rompe la
+trazabilidad en el export y en cualquier flujo que busque por nombre de datablock.
+
+Con el toggle **Sincronizar nombres de mesh** activo, el datablock se renombra solo cada vez
+que renombras un objeto, venga el renombrado de donde venga: Outliner, `F2`, panel `N`,
+scripts o los propios operadores del addon.
+
+El botón **Sincronizar todos los nombres** corrige de una pasada los desajustes que ya
+existan, con tres ámbitos: selección, escena o archivo completo. Funciona con el toggle
+desactivado, y reporta cuántos datablocks sincronizó y cuántos se saltaron.
+
+No se tocan nunca:
+
+- Datablocks compartidos por varios objetos, porque qué nombre debe ganar es ambiguo
+- Datos linkeados desde librerías externas, que son de solo lectura
+- `Library overrides`, donde renombrar rompería el vínculo con el original
+
+Con el toggle desactivado el addon no registra ningún handler, así que el coste es cero.
 
 ### 3. Export
 
@@ -150,7 +174,9 @@ El addon incluye una base para activación comercial:
 
 ## Versión actual
 
-`v1.0.12`
+`v1.3.0`
+
+El detalle de cada versión está en las notas de release (`RELEASE_NOTES_vX.Y.Z.md`).
 
 ## Preparar releases
 
@@ -173,5 +199,3 @@ Documentación y código del servidor de licencias:
 - [LICENSE_SERVER_README.md](LICENSE_SERVER_README.md)
 - [license_server/app.py](license_server/app.py)
 - [license_server/seed_demo_data.py](license_server/seed_demo_data.py)
-
-ajolote
